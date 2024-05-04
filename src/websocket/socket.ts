@@ -1,15 +1,19 @@
-import io from 'socket.io-client';
-
+import io, { Socket } from "socket.io-client";
+import { useContext } from "react";
+import { SocketContextId } from "../contexts/socketIdContext";
 const connectSocket = () => {
-    const socketInstance = io('https://solid-fishstick-x5ppj49jq6jf664p-8080.app.github.dev', {
-        withCredentials: true,
-        extraHeaders: {
-            "Access-Control-Allow-Origin": "https://fantastic-guacamole-5grrw94wppg3wr6-5173.app.github.dev"
-        }
+  const context = useContext(SocketContextId);
+  const socketTCP = (): Socket => {
+    console.log("is working here too");
+    const socketInstance = io("http://localhost:8080");
+    https: socketInstance.connect();
+    socketInstance.on("your:socket:id", (id: string) => {
+      console.log("problem seems here: ", id);
+      context.setId(id);
     });
-    socketInstance.connect();
     return socketInstance;
-}
-export {
-    connectSocket
-}
+  };
+
+  return { socketTCP };
+};
+export { connectSocket };
