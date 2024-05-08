@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import React, { useEffect, useRef, useState, useContext } from "react";
+import { useEffect, useRef, useState, useContext } from "react";
 import { SocketContext } from "../contexts/socketContext";
 import startDuplexCommunication from "../utils/setName";
 import { SocketContextId } from "../contexts/socketIdContext";
@@ -42,7 +42,6 @@ const CreateRoom = () => {
       mime: "",
     },
   });
-  const [displayer, setdisplayer] = useState<string>("");
   const [yourName, setYourName] = useState<string>(
     localStorage.getItem("your-name")
       ? (localStorage.getItem("your-name") as string)
@@ -52,8 +51,6 @@ const CreateRoom = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const { setName$ } = startDuplexCommunication();
   const socketBio = useContext(SocketContextId);
-  const logoref: React.RefObject<HTMLInputElement> = useRef(null);
-  const videoref: React.RefObject<HTMLInputElement> = useRef(null);
   const [blocked, setBlocked] = useState<boolean>(false);
   const namespace = useRef<string>("");
   const writeData = (input: string, from: string, videometa?: VideoMeta) => {
@@ -67,40 +64,6 @@ const CreateRoom = () => {
       ...(meta as Meta),
       [from]: input,
     });
-  };
-
-  const uploadLogo = () => {
-    let file = logoref.current
-      ? logoref.current.files
-        ? logoref.current.files[0]
-        : null
-      : null;
-    if (!file) {
-      return alert("error uploading image!");
-    }
-    file = file as File;
-    const blob = new Blob([file], { type: "images/*" });
-    const wsblob = URL.createObjectURL(blob);
-    setdisplayer(wsblob);
-    writeData(wsblob, "logo");
-  };
-
-  const uploadVideo = () => {
-    let file = videoref.current
-      ? videoref.current.files
-        ? videoref.current.files[0]
-        : null
-      : null;
-    if (!file) return alert("error uploading video");
-    const types = ["mkv", "mp4"];
-    const fileNameParts = file.name.split(".");
-    const extension = fileNameParts[fileNameParts.length - 1];
-    if (!types.includes(extension)) return alert("Upload Video files only!");
-    writeData("ws://", "$", {
-      name: file.name,
-      size: file.size,
-      mime: file.type,
-    } as VideoMeta);
   };
 
   const createRoom = async () => {
@@ -240,13 +203,6 @@ const CreateRoom = () => {
               writeData(event.target.value, "password");
             }}
           />
-          <label htmlFor="image">Upload logo</label>
-          <input type="file" id="logo" ref={logoref} onChange={uploadLogo} />
-          {displayer && <img src={displayer} />}
-
-          <label htmlFor="video-tag">Upload your video</label>
-          <input type="file" id="video" ref={videoref} onChange={uploadVideo} />
-
           <button id="start-room" onClick={createRoom}>
             Create Room
           </button>

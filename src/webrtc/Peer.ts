@@ -13,6 +13,7 @@ class Peer {
     }
   }
   async makePeer() {
+    console.log("how many times it is comming??");
     this.peer = new RTCPeerConnection({
       iceServers: [
         {

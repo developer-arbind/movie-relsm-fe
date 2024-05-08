@@ -54,13 +54,19 @@ const Room = () => {
   const { setName$ } = startDuplexCommunication();
   const [admin, setAdmin] = useState<boolean>(false);
   const localStream = useRef<MediaStream | null>(null);
-
+  const videoMediaRef: React.RefObject<HTMLVideoElement> = useRef(null);
+  const [playing, setPlaying] = useState<boolean>(false);
   const videoFile: React.RefObject<HTMLInputElement> = useRef(null);
-  const PeerConnections = useRef<Array<{ pc: Peer; socketId: string }>>([
-    { pc: new Peer(), socketId: socketBio.id },
-  ]);
+  const PeerConnections = useRef<Array<{ pc: Peer; socketId: string }>>([]);
   const nameAdded = useRef<boolean>(false);
   const peerIndex = useRef<number>(0);
+  useEffect(() => {
+    if (!localStorage.getItem("pre-peer")) {
+      PeerConnections.current.push({ pc: new Peer(), socketId: socketBio.id });
+      localStorage.setItem("pre-peer", "true");
+    }
+  }, []);
+
   const currentPeeringSocket = useRef<string>("");
   const admiRef = useRef(admin);
   useEffect(() => {
@@ -163,6 +169,10 @@ const Room = () => {
               progressTransferFile:
                 (totalBytesArrayBuffers * 100) / totalBytesFileBuffer,
             });
+            if ((totalBytesArrayBuffers * 100) / totalBytesFileBuffer === 100) {
+              document.cookie = "downloaded=$";
+              alert("download complete");
+            }
           }
         } else if (data === LAST_DATA_OF_FILE) {
           getCompleteFile(
@@ -212,7 +222,8 @@ const Room = () => {
   const downloadFile = (blob: Blob, fileName: string) => {
     const anchor = document.createElement("a");
     const fileType = blob.type.split("/")[1];
-    anchor.download = `${fileName}.${fileType}`;
+    console.log("file type: ", blob.type, blob, fileType);
+    anchor.download = `${fileName}.mkv`;
     let url = URL.createObjectURL(blob);
     anchor.href = url;
     anchor.click();
@@ -281,6 +292,7 @@ const Room = () => {
         "connected" ||
       forcefulConnected
     ) {
+      console.log("slow motion: $times");
       PeerConnections.current.push({ pc: new Peer(), socketId });
       peerIndex.current++;
     }
@@ -429,9 +441,41 @@ const Room = () => {
         iamTryingToConnect.current = true;
         await SessionDescriptionProtocol(ids);
       });
-      websocket.on("vice:versa", (room) => {
+      websocket.on("on:someone:pause", (socketId) => {
+        console.log("from user: ", socketId);
+        videoMediaRef.current?.pause();
+      });
+
+      websocket.on(
+        "on:dragged:timeline",
+        ({ user, speed }: { user: string; speed: number }) => {
+          videoMediaRef.current!.playbackRate = speed;
+          console.log("playback speed: ", speed, user);
+        }
+      );
+
+      websocket.on(
+        "on:dragged:timeline",
+        ({ user, timeline }: { user: string; timeline: number }) => {
+          console.log("user and timeline: ", user, timeline);
+          console.log("current video element: ", videoMediaRef.current);
+          videoMediaRef.current!.currentTime = timeline;
+        }
+      );
+      websocket.on("on:someone:skip-timeline", ({ from, timeline }) => {
+        console.log("the timeline: ", timeline, from);
+
+        videoMediaRef.current!.currentTime = timeline;
+      });
+      websocket.on("on:someone:resume", (socketId) => {
+        console.log("from user$: ", socketId);
+        videoMediaRef.current?.play();
+      });
+      websocket.on("vice:versa", ({ room, socketId }) => {
         websocket.emit("leave:forcefull", room);
-        websocket.emit("i:am:done", room);
+        websocket.emit("i:am:done", { room, socketId });
+        websocket.emit("kick:out", room);
+        localStorage.removeItem("pre-peer");
         history("/");
       });
 
@@ -566,6 +610,7 @@ const Room = () => {
             PeerConnections.current[peerIndex.current].pc.peer
               ?.connectionState === "failed"
           ) {
+            console.log("should something happening here: ");
             PeerConnections.current.push({
               pc: new Peer(),
               socketId: whomSocketId,
@@ -622,10 +667,12 @@ const Room = () => {
         websocket.emit("send:ids:to:me", room);
       });
 
-      websocket.on("leave:invitation:for:you", (room) => {
+      websocket.on("leave:invitation:for:you", ({ room, socketId }) => {
         if (!admiRef.current) {
-          websocket.emit("leave:forcefull", room);
-          websocket.emit("i:am:done", room);
+          websocket.emit("leave:forcefull");
+          websocket.emit("i:am:done", { room, socketId });
+          websocket.emit("kick:out", room);
+          localStorage.removeItem("pre-peer");
           history("/");
         }
       });
@@ -637,8 +684,9 @@ const Room = () => {
       });
       window.addEventListener("beforeunload", function (e) {
         e.returnValue = "";
-        websocket.emit("i:am:done", room);
+        websocket.emit("i:am:done", { room, socketId: socketBio.id });
         console.log("User is leaving the page");
+        localStorage.removeItem("pre-peer");
       });
       websocket.on("you:got:rejected", (room) => {
         if (admiRef.current) {
@@ -678,7 +726,8 @@ const Room = () => {
             websocket.emit("send:ids:to:me", room);
             window.addEventListener("beforeunload", function (e) {
               e.returnValue = "";
-              websocket.emit("i:am:done", room);
+              websocket.emit("i:am:done", { room, socketId: socketBio.id });
+              localStorage.removeItem("pre-peer");
               console.log("User is leaving the page");
             });
             return setRoomUnlocked(0); //it means, just created and done!
@@ -829,6 +878,51 @@ const Room = () => {
     blob.current = BLOB;
     setMedia(URL.createObjectURL(BLOB));
     setFileSelected(true);
+    if (admin) return;
+    let ormm = returnPromise();
+    if (ormm) {
+      websocket.emit("set:stream:ready", room);
+    }
+  };
+
+  const syncPause = () => {
+    console.log("on:pause");
+    websocket.emit("sync:pause", room);
+  };
+  const syncPlay = () => {
+    console.log("comming here!");
+    websocket.emit("sync:play", room);
+    setPlaying(true);
+  };
+  const returnPromise = () => {
+    let cookies = document.cookie;
+    let scookie = cookies.split(";");
+    let oreintation = "@";
+    for (let i = 0; i < scookie.length; i++) {
+      let key = scookie[i].split("=")[0].trim();
+      if (key === "downloaded") {
+        oreintation = scookie[i].split("=")[1].trim();
+      }
+    }
+
+    return oreintation === "$" ? true : false;
+  };
+  useEffect(() => {
+    if (playing) {
+      videoMediaRef.current?.play();
+    } else {
+      videoMediaRef.current?.pause();
+    }
+  }, [playing]);
+  const onContinousSeeking = () => {
+    const draggedTimeline = videoMediaRef.current?.currentTime;
+    console.log("dragging");
+    websocket.emit("set:dragging:portion", { room, timeline: draggedTimeline });
+  };
+
+  const onSyncRate = () => {
+    const rateSpeed = videoMediaRef.current?.currentTime;
+    websocket.emit("set:rate:speed", { room, speed: rateSpeed });
   };
 
   return (
@@ -902,19 +996,31 @@ const Room = () => {
           {admin && (
             <div>
               <h3>you are the admin and have all controls</h3>
-              <input
-                type="file"
-                id="select-video"
-                ref={videoFile}
-                onChange={uploadVideo}
-              />
-              {afterFileSelected && (
-                <div>
-                  <video src={media} controls></video>
-                </div>
-              )}
             </div>
           )}
+          <div className="video-media">
+            <input
+              type="file"
+              id="select-video"
+              ref={videoFile}
+              onChange={uploadVideo}
+            />
+            {afterFileSelected && (
+              <div>
+                <video
+                  ref={videoMediaRef}
+                  src={media}
+                  controls
+                  width={"300px"}
+                  height={"400px"}
+                  onPause={syncPause}
+                  onPlay={syncPlay}
+                  onSeeking={onContinousSeeking}
+                  onRateChange={onSyncRate}
+                ></video>
+              </div>
+            )}
+          </div>
           {admin &&
             requests.length > 0 &&
             requests.map((payload, index) => {
