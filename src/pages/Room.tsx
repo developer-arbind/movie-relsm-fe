@@ -28,7 +28,11 @@ interface Stream {
   mute: boolean;
   webcam: boolean;
   name: string;
+}
+
+interface Speaking {
   speaking: boolean;
+  socketId: string;
 }
 
 interface Abstract {
@@ -129,7 +133,7 @@ const Room = () => {
 
   let blockViceVersa = useRef<boolean>(true);
   const [streams, setStreams] = useState<Stream[]>([]);
-
+  const [speakers, setSpeakers] = useState<Speaking[]>([]);
   const iamTryingToConnect = useRef<boolean>(false);
   const [downloadProgress, setDownloadProgress] = useState({
     progressTransferFile: 0,
@@ -142,6 +146,7 @@ const Room = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const blob = useRef<Blob | null>(null);
   const createStream = async (socketId: string) => {
+    const audioCtx = new AudioContext();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: true,
@@ -151,7 +156,138 @@ const Room = () => {
     if (!stream) {
       return alert("Please allow the jarui permissions");
     }
+
+    const micSource = audioCtx.createMediaStreamSource(stream);
+    const scriptNode = audioCtx.createScriptProcessor(2048, 1, 1); // adjust bufferSize and channel count as needed
+
+    scriptNode.onaudioprocess = (event) => {
+      const inputBuffer = event.inputBuffer;
+      // Analyze audio data here (e.g., calculate root mean square - RMS)
+    };
+
+    micSource.connect(scriptNode);
+    scriptNode.connect(audioCtx.destination);
+
+    function isSpeech(buffer: any) {
+      const channels = buffer.numberOfChannels;
+      let rms = 0;
+      for (let c = 0; c < channels; c++) {
+        for (let i = 0; i < buffer.length; i++) {
+          const sample = buffer.getChannelData(c)[i];
+          rms += sample * sample;
+        }
+      }
+      rms = Math.sqrt(rms / (buffer.length * channels));
+      // Set a threshold for speech detection and adjust based on your environment
+      return rms > 0.01;
+    }
+
+    let isSpeaking = false;
+
+    scriptNode.onaudioprocess = (event) => {
+      const inputBuffer = event.inputBuffer;
+      const speechActive = isSpeech(inputBuffer);
+
+      if (!isSpeaking && speechActive) {
+        console.log("Speech started");
+        isSpeaking = true;
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: true,
+              };
+            }
+            return strm;
+          })
+        );
+        // Fire your "speech started" event here
+      } else if (isSpeaking && !speechActive) {
+        console.log("Speech stopped");
+        isSpeaking = false;
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: false,
+              };
+            }
+            return strm;
+          })
+        );
+        // Fire your "speech stopped" event here
+      }
+    };
     const shallowRefference = { ...videoRef };
+    // const audioContext = new (window.AudioContext ||
+    //   window.webkitAudioContext)();
+    // const source = audioContext.createMediaStreamSource(stream);
+    // const analyser = audioContext.createAnalyser();
+    // analyser.fftSize = 256;
+    // const bufferLength = analyser.frequencyBinCount;
+    // const dataArray = new Uint8Array(bufferLength);
+
+    // source.connect(analyser);
+
+    // let speaking = false;
+    // const silenceThreshold = 30;
+    // const silenceTimeout = 500;
+
+    // let silenceTimer: ReturnType<typeof setTimeout>;
+
+    // const checkAudio = () => {
+    //   analyser.getByteFrequencyData(dataArray);
+
+    //   const sum = dataArray.reduce(
+    //     (acceleration, velocity) => acceleration + velocity,
+    //     0
+    //   );
+    //   const average = sum / bufferLength;
+
+    //   if (average > silenceThreshold) {
+    //     if (!speaking) {
+    //       speaking = true;
+    //       console.log("User started speaking");
+    //       setSpeakers((prev) =>
+    //         prev.map((strm) => {
+    //           if (strm.socketId === socketBio.id) {
+    //             return {
+    //               ...strm,
+    //               speaking: true,
+    //             };
+    //           }
+    //           return strm;
+    //         })
+    //       );
+    //     }
+    //     clearTimeout(silenceTimer);
+    //   } else {
+    //     if (speaking) {
+    //       clearTimeout(silenceTimer);
+    //       silenceTimer = setTimeout(() => {
+    //         speaking = false;
+    //         console.log("User stopped speaking");
+    //         setSpeakers((prev) =>
+    //           prev.map((strm) => {
+    //             if (strm.socketId === socketBio.id) {
+    //               return {
+    //                 ...strm,
+    //                 speaking: false,
+    //               };
+    //             }
+    //             return strm;
+    //           })
+    //         );
+    //       }, silenceTimeout);
+    //     }
+    //   }
+
+    //   requestAnimationFrame(checkAudio);
+    // };
+
+    // checkAudio();
     setStreams((prev) => [
       ...prev,
       {
@@ -161,7 +297,13 @@ const Room = () => {
         mute: false,
         webcam: false,
         name: yourName,
+      },
+    ]);
+    setSpeakers((prev) => [
+      ...prev,
+      {
         speaking: false,
+        socketId,
       },
     ]);
     localStream.current = stream;
@@ -442,8 +584,70 @@ const Room = () => {
   const getRemoteTracks = async (event: any) => {
     const nextUserStreamReference = event.streams[0];
     const track = event.track;
+    const heap = currentPeeringSocket.current;
+    if (track.kind === "audio") {
+      const audioCtx = new AudioContext();
+      const micSource = audioCtx.createMediaStreamSource(
+        nextUserStreamReference
+      );
+      const scriptNode = audioCtx.createScriptProcessor(2048, 1, 1); // adjust bufferSize and channel count as needed
+      micSource.connect(scriptNode);
+      scriptNode.connect(audioCtx.destination);
 
-    if (track.kind === "audio") return;
+      function isSpeech(buffer: any) {
+        const channels = buffer.numberOfChannels;
+        let rms = 0;
+        for (let c = 0; c < channels; c++) {
+          for (let i = 0; i < buffer.length; i++) {
+            const sample = buffer.getChannelData(c)[i];
+            rms += sample * sample;
+          }
+        }
+        rms = Math.sqrt(rms / (buffer.length * channels));
+        // Set a threshold for speech detection and adjust based on your environment
+        return rms > 0.01;
+      }
+
+      let isSpeaking = false;
+
+      scriptNode.onaudioprocess = (event) => {
+        const inputBuffer = event.inputBuffer;
+        const speechActive = isSpeech(inputBuffer);
+
+        if (!isSpeaking && speechActive) {
+          console.log("Speech started");
+          isSpeaking = true;
+          setSpeakers((prev) =>
+            prev.map((strm) => {
+              if (strm.socketId === heap) {
+                return {
+                  ...strm,
+                  speaking: true,
+                };
+              }
+              return strm;
+            })
+          );
+          // Fire your "speech started" event here
+        } else if (isSpeaking && !speechActive) {
+          console.log("Speech stopped");
+          isSpeaking = false;
+          setSpeakers((prev) =>
+            prev.map((strm) => {
+              if (strm.socketId === heap) {
+                return {
+                  ...strm,
+                  speaking: false,
+                };
+              }
+              return strm;
+            })
+          );
+          // Fire your "speech stopped" event here
+        }
+      };
+      return;
+    }
 
     const streamExists = streams.some(
       (stream) => stream.stream.id === nextUserStreamReference.id
@@ -480,7 +684,13 @@ const Room = () => {
         webcam: isMute ? false : true,
         mute: isVideoMute ? false : true,
         name: "loading...",
+      },
+    ]);
+    setSpeakers((prev) => [
+      ...prev,
+      {
         speaking: false,
+        socketId: currentPeeringSocket.current,
       },
     ]);
     websocket.emit("get:name", {
@@ -523,7 +733,9 @@ const Room = () => {
         now.setTime(expireTime);
         document.cookie =
           "ticket=" + encrypted + ";expires=" + now.toUTCString() + ";path=/";
+
         await createStream(socketBio.id);
+        // onContinuesMicChecking();
         websocket.emit("send:ids:to:me", room);
         websocket.emit("set:room:name", room);
       });
@@ -549,7 +761,7 @@ const Room = () => {
       websocket.on("on:someone:speaking", (socketId) => {
         console.log("the user speaking: ", socketId);
 
-        setStreams((prev) =>
+        setSpeakers((prev) =>
           prev.map((strm) => {
             if (strm.socketId === socketId) {
               return {
@@ -563,7 +775,7 @@ const Room = () => {
       });
       websocket.on("on:someone:stopped:speaking", (socketId) => {
         console.log("on user stops typing");
-        setStreams((prev) =>
+        setSpeakers((prev) =>
           prev.map((strm) => {
             if (strm.socketId === socketId) {
               return {
@@ -588,6 +800,9 @@ const Room = () => {
       });
 
       websocket.on("you:are:kicked:out", () => {
+        onLeave();
+      });
+      websocket.on("room:deleted:by:admin", () => {
         onLeave();
       });
 
@@ -887,7 +1102,11 @@ const Room = () => {
       document.addEventListener("visibilitychange", function () {
         if (document.hidden) {
           console.log("Browser tab is hidden");
-          videoMediaRef.current!.pause();
+          try {
+            videoMediaRef.current!.pause();
+          } catch (err: any) {
+            null;
+          }
           websocket.emit("pause:due:out:of:visiblity", room);
         } else {
           !pausedRef.current ? videoMediaRef.current!.play() : null;
@@ -929,6 +1148,7 @@ const Room = () => {
             setAdmin(true);
             // await createStream(socketBio.id);
             await createStream(socketBio.id);
+            // onContinuesMicChecking();
             websocket.emit("set:room:name", room);
             websocket.emit("send:ids:to:me", room);
             window.addEventListener("beforeunload", function (e) {
@@ -1099,7 +1319,7 @@ const Room = () => {
     recognition.onresult = function (event) {
       if (websocket) {
         websocket.emit("i:am:speaking", room);
-        setStreams((prev) =>
+        setSpeakers((prev) =>
           prev.map((strm) => {
             if (strm.socketId === socketBio.id) {
               return {
@@ -1125,7 +1345,7 @@ const Room = () => {
       console.log("User stopped speaking.");
       if (websocket) {
         websocket.emit("i:am:stopped:speaking", room);
-        setStreams((prev) =>
+        setSpeakers((prev) =>
           prev.map((strm) => {
             if (strm.socketId === socketBio.id) {
               return {
@@ -1232,12 +1452,16 @@ const Room = () => {
   }
 
   const onLeave = () => {
-    alert("yuo have kicked out!");
-
+    alert("you have kicked out!");
     thingsTodelete.forEach((key) => deleteCookie(key));
     websocket.emit("leave:forcefull", room);
     websocket.emit("i:am:done", { room, socketId: socketBio.id });
     websocket.emit("kick:out", room);
+
+    if (admin) {
+      websocket.emit("delete:room", room);
+    }
+
     localStorage.removeItem("pre-peer");
     history("/");
   };
@@ -1740,7 +1964,7 @@ const Room = () => {
         </div>
       )}
       {roomUnlocked === 0 && (
-        <div className="room bg-neutral-800">
+        <div className="room">
           {!admin ? (
             <>
               <h2>
@@ -1761,10 +1985,17 @@ const Room = () => {
                   webrtc={webrtc}
                   admin={admin}
                   socketBio={socketBio}
-                  speaking={webrtc.speaking}
                   kickOut={kickOut}
                 />
               ))}
+              {speakers.map((wbcc, index) => {
+                return (
+                  <div key={index}>
+                    for user: {wbcc.socketId} and{" "}
+                    {wbcc.speaking ? "😂😂" : "💀💀💀"}
+                  </div>
+                );
+              })}
               <div className="controlers">
                 <button onClick={() => onMuteorStopStreaming(true, mute)}>
                   {!mute ? "Mute" : "Unmute"}
