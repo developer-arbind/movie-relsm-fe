@@ -8,6 +8,8 @@ import {
   returnFriendToken,
 } from "../utils/cookie";
 import StreamItem from "./StreamItem";
+import "./worker.css";
+
 import NamePopUp from "./NamePopup";
 import startDuplexCommunication from "../utils/setName";
 import { SocketContextId } from "../contexts/socketIdContext";
@@ -25,6 +27,7 @@ interface Stream {
   socketId: string;
   stream: MediaStream;
   ref: React.LegacyRef<HTMLVideoElement> | null;
+  threedOT: boolean;
   mute: boolean;
   webcam: boolean;
   name: string;
@@ -51,6 +54,109 @@ const process = {
 };
 const LAST_DATA_OF_FILE = "LDOF7";
 const Room = () => {
+  const [isMute, setIsMute] = useState(false);
+  const [isVisible, setIsVisible] = useState(false); // Single state for visibility
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [showOptions, setShowOptions] = useState(true);
+  const [openMenu, setOpenMenu] = useState(false); // Single state for menu
+  const streamRef = useRef(null); // Ref to store the media stream
+  const canvasRef = useRef(null);
+
+  const [isArrowUped, setIsArrowUped] = useState(false);
+  const [isEmojiOpened, setIsEmojiOpened] = useState(false);
+
+  function getDeviceType() {
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    const isMobileDevice =
+      /android/i.test(userAgent) || /iPad|iPhone|iPod/.test(userAgent);
+
+    if (isMobileDevice) {
+      return "mobile";
+    }
+
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      return "mobile";
+    }
+
+    return "desktop";
+  }
+
+  const [phoneOrPc, setPhoneOrPc] = useState("");
+  const [removePopUp, setRemovePop] = useState(true);
+
+  useEffect(() => {
+    const deviceType = getDeviceType();
+    setPhoneOrPc(deviceType);
+    setRemovePop(deviceType !== "mobile");
+  }, []);
+  const [enableFfModal, setEnableFfModal] = useState(false);
+  const handleMic = () => {
+    setIsMute((prev) => !prev);
+  };
+
+  const handleVisibility = () => {
+    setIsVisible((prev) => !prev);
+  };
+
+  const handleChat = () => {
+    setIsChatOpen((prev) => !prev);
+  };
+
+  const handleOptions = () => {
+    setShowOptions((prev) => !prev);
+  };
+
+  const handleThreeDots = () => {
+    setOpenMenu((prev) => !prev);
+  };
+
+  useEffect(() => {
+    window.addEventListener("orientationchange", function () {
+      console.log("Orientation changed to: " + window.orientation);
+
+      if (window.orientation === 0) {
+        // Portrait orientation
+        setRemovePop(false);
+      } else if (window.orientation === 90 || window.orientation === -90) {
+        // Landscape orientation
+        setRemovePop(true);
+        !document.fullscreenElement
+          ? setEnableFfModal(true)
+          : setEnableFfModal(false);
+        // Attach fullscreen trigger to a user interaction
+        document.addEventListener(
+          "click",
+          () => {
+            fullScreen(document.documentElement);
+            setEnableFfModal(false);
+          },
+          { once: true }
+        );
+      }
+    });
+  }, []);
+
+  function fullScreen(element: any) {
+    if (element.requestFullscreen) {
+      element.requestFullscreen();
+    } else if (element.webkitRequestFullscreen) {
+      element.webkitRequestFullscreen();
+    } else if (element.mozRequestFullscreen) {
+      element.mozRequestFullscreen();
+    }
+  }
+
+  const handleFileChange = (event: any) => {
+    setFile(event.target.files[0]);
+  };
+
+  const handleUpload = () => {
+    if (file) {
+      // Handle the file upload process
+      console.log("File to upload:", file);
+      // You can add your file upload logic here
+    }
+  };
   const [passcode, setpasscode] = useState<string>("");
   const history = useNavigate();
   const socketState = useContext(SocketContext);
@@ -76,6 +182,7 @@ const Room = () => {
       socketId: string;
     }>
   >([]);
+  const notification = useRef<Notification | null>(null);
   const [chats, setChat] = useState<
     Array<{
       name: string;
@@ -97,6 +204,8 @@ const Room = () => {
     admiRef.current = admin;
   }, [admin]);
   const [roomUnlocked, setRoomUnlocked] = useState<number>(2);
+  const [notificationEnabled, setNotificationEnabled] =
+    useState<boolean>(false);
   const [requests, setRequests] = useState<
     Array<
       | {
@@ -119,6 +228,7 @@ const Room = () => {
   const roomSockets = useRef<string[]>([]);
 
   const container: React.RefObject<HTMLDivElement> = useRef(null);
+  const chatNotOpenedOrTabUnvisible = useRef<boolean>(false);
   const emojies: Array<React.RefObject<HTMLButtonElement>> = [
     useRef(null),
     useRef(null),
@@ -297,6 +407,7 @@ const Room = () => {
         mute: false,
         webcam: false,
         name: yourName,
+        threedOT: false,
       },
     ]);
     setSpeakers((prev) => [
@@ -369,7 +480,7 @@ const Room = () => {
 
             setDownloadProgress({
               progressTransferFile:
-                (totalBytesArrayBuffers * 100) / totalBytesFileBuffer,
+                Math.floor((totalBytesArrayBuffers * 100) / totalBytesFileBuffer),
               downloadSpeed: speedValue,
               speedUnit: speedUnit,
             });
@@ -432,7 +543,8 @@ const Room = () => {
     });
 
     const blobObject = new Blob([uintArrayBuffer]);
-
+    setdownloadCompleted(false);
+    setAfterDownloadPopUp(true);
     return downloadFile(blobObject, fileName);
   };
   const downloadFile = (blob: Blob, fileName: string) => {
@@ -684,6 +796,7 @@ const Room = () => {
         webcam: isMute ? false : true,
         mute: isVideoMute ? false : true,
         name: "loading...",
+        threedOT: false,
       },
     ]);
     setSpeakers((prev) => [
@@ -840,6 +953,15 @@ const Room = () => {
               message,
             },
           ]);
+          if (chatNotOpenedOrTabUnvisible.current) {
+            const img = "/to-do-notifications/img/icon-128.png";
+            const text = `${name}: ${message}`;
+            notification.current = new Notification("message-queue", {
+              body: text,
+              icon: img,
+            });
+            console.log("notification: ", notification.current);
+          }
         }
       );
       websocket.on("pass:the:timeline", (socketId) => {
@@ -1102,6 +1224,7 @@ const Room = () => {
       document.addEventListener("visibilitychange", function () {
         if (document.hidden) {
           console.log("Browser tab is hidden");
+          chatNotOpenedOrTabUnvisible.current = true;
           try {
             videoMediaRef.current!.pause();
           } catch (err: any) {
@@ -1109,6 +1232,9 @@ const Room = () => {
           }
           websocket.emit("pause:due:out:of:visiblity", room);
         } else {
+          if (notification.current) {
+            notification.current.close();
+          }
           !pausedRef.current ? videoMediaRef.current!.play() : null;
           websocket.emit("play:due:of:visiblity", room);
           console.log("Browser tab is visible");
@@ -1364,7 +1490,12 @@ const Room = () => {
 
     recognition.start();
   };
-
+  const [file, setFile] = useState<{ name: string }>({ name: "" });
+  const realFileGodDammit = useRef<File>();
+  const [downloadCompleted, setdownloadCompleted] = useState<boolean>(true);
+  const [FileSelected, setFileSelectedAlready] = useState<boolean>(false);
+  const [openUploadModal, setUploadModal] = useState<boolean>(true);;
+  const [afterDownloadPopUp, setAfterDownloadPopUp] = useState<boolean>(false); 
   const uploadVideo = () => {
     let file = videoFile.current
       ? videoFile.current.files
@@ -1372,6 +1503,11 @@ const Room = () => {
         : null
       : null;
     if (!file) return alert("error uploading video");
+    setFile({ name: file.name });
+    realFileGodDammit.current = file;
+  };
+  const onUpload = () => {
+    const file = realFileGodDammit.current!;
     const types = ["mkv", "mp4"];
     const fileNameParts = file.name.split(".");
     const extension = fileNameParts[fileNameParts.length - 1];
@@ -1392,7 +1528,13 @@ const Room = () => {
         videoMediaRef.current!.currentTime = parseFloat(timeline);
       };
     }
-    if (admin) return;
+
+    if (admin) {
+      setFileSelectedAlready(true);
+      setUploadModal(false);
+      return;
+    }
+    setAfterDownloadPopUp(false);
     let ormm = returnPromise();
     if (ormm) {
       websocket.emit("set:stream:ready", room);
@@ -1400,7 +1542,7 @@ const Room = () => {
       websocket.emit("get:admin:timeline", room);
     }
   };
-
+  const [leaveModal, setLeaveModal] = useState<boolean>(false);
   const syncPause = () => {
     console.log("on:pause");
     pausedRef.current = true;
@@ -1543,6 +1685,52 @@ const Room = () => {
       ? websocket.emit("send:emoji:reaction", { room, id: e.target.id })
       : null;
   }
+
+  useEffect(() => {
+    if (!("Notification" in window)) {
+      console.log("This browser does not support notifications.");
+      return;
+    }
+    Notification.requestPermission().then((permission) => {
+      const outcome: string = permission === "granted" ? "none" : "block";
+      if (outcome == "granted") {
+        setNotificationEnabled(true);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    function isMobileOrTablet() {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i.test(
+        userAgent
+      );
+    }
+
+    function checkFullScreen() {
+      if (
+        !document.fullscreenElement &&
+        !document.mozFullScreenElement &&
+        !document.webkitFullscreenElement &&
+        !document.msFullscreenElement
+      ) {
+        // Show the prompt if not in full-screen mode and if the pop-up should be shown
+        if (removePopUp) {
+          setEnableFfModal(true);
+        }
+      } else {
+        // Hide the prompt if in full-screen mode
+        setEnableFfModal(false);
+      }
+    }
+
+    if (isMobileOrTablet()) {
+      const intervalId = setInterval(checkFullScreen, 500);
+
+      // Cleanup interval on component unmount
+      return () => clearInterval(intervalId);
+    }
+  }, [removePopUp]);
   return (
     <div>
       <NamePopUp
@@ -1872,7 +2060,7 @@ const Room = () => {
                     </h3>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
-                        You can't join the same room at 2 different places!
+                        You can't join the same room at 2 different places! or can't rejoin the same room after leaving the room!.
                       </p>
                     </div>
                   </div>
@@ -1963,253 +2151,885 @@ const Room = () => {
           </div>
         </div>
       )}
-      {roomUnlocked === 0 && (
-        <div className="room">
-          {!admin ? (
-            <>
-              <h2>
-                download progress: {downloadProgress.progressTransferFile}
-              </h2>
-              <h3>
-                speed: {downloadProgress.downloadSpeed}{" "}
-                {downloadProgress.speedUnit}
-              </h3>
-            </>
+      {roomUnlocked === 0 && ( // 0 means room unlocked!!
+        <>
+          {isArrowUped ? (
+            <div
+              onClick={() => {
+                setIsArrowUped(false);
+              }}
+              style={{ cursor: "pointer" }}
+              className="fixed bottom-4 right-4 z-10 bg-[#373737] p-3 rounded-full flex items-center justify-center w-12 h-12 shadow-lg"
+            >
+              <i className="fa-solid fa-angle-up text-white"></i>
+            </div>
           ) : null}
-          {streams.length > 0 && (
-            <div>
-              Livecams
-              {streams.map((webrtc) => (
-                <StreamItem
-                  key={webrtc.socketId}
-                  webrtc={webrtc}
-                  admin={admin}
-                  socketBio={socketBio}
-                  kickOut={kickOut}
-                />
-              ))}
-              {speakers.map((wbcc, index) => {
-                return (
-                  <div key={index}>
-                    for user: {wbcc.socketId} and{" "}
-                    {wbcc.speaking ? "😂😂" : "💀💀💀"}
-                  </div>
-                );
-              })}
-              <div className="controlers">
-                <button onClick={() => onMuteorStopStreaming(true, mute)}>
-                  {!mute ? "Mute" : "Unmute"}
+          {/* <div className="fixed bottom-4 right-6 z-50">
+        <div className="bg-white border-l-4 border-blue-500 text-gray-800 rounded-md shadow-lg p-3 w-80 flex items-center">
+          <div className="flex-grow">
+            <h4 className="text-sm font-medium">John Doe</h4>
+            <p className="text-xs text-gray-600 truncate">
+              This is a custom notification message that might be too long to
+              show entirely...
+            </p>
+          </div>
+          <button
+            className="ml-3 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded focus:outline-none"
+            style={{ width: "20%" }}
+          >
+            x
+          </button>
+        </div>
+      </div> */}
+
+
+        {/* //   !admin ? (
+        //     <>
+        //       <h2>
+        //         download progress: {downloadProgress.progressTransferFile}
+        //       </h2>
+        //       <h3>
+        //         speed: {downloadProgress.downloadSpeed}{" "}
+        //         {downloadProgress.speedUnit}
+        //       </h3>
+        //     </>
+        //   ) : null} */}
+
+         {!admin && downloadCompleted && <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black bg-opacity-60"></div>
+
+        <div className="relative bg-gray-900 text-white rounded-lg shadow-xl p-6 w-96">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-white">
+              Download in Progress
+            </h2>
+            <button className="text-gray-400 hover:text-gray-200">
+              <span className="sr-only">Close</span>?
+            </button>
+          </div>
+
+          <div className="flex justify-center items-center mb-4">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-full border-t-4 border-blue-500 animate-spin"></div>
+              <div className="absolute inset-0 flex justify-center items-center text-xl font-semibold">
+                {downloadProgress.progressTransferFile}%
+              </div>
+            </div>
+          </div>
+
+          <div className="text-gray-400 mb-4">
+            <p>
+              File: <span className="text-gray-200">example-file.zip</span>
+            </p>
+            <p>
+              Downloaded: <span className="text-gray-200">65 MB of 100 MB</span>
+            </p>
+            <p>
+              Time Left: <span className="text-gray-200">2 minutes</span>
+            </p>
+            <p>
+              Speed: <span className="text-gray-200"> {downloadProgress.downloadSpeed}{" "}{downloadProgress.speedUnit}</span>
+            </p>
+          </div>
+
+          <div className="flex justify-between">
+            <button
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md"
+              style={{ width: "100%" }}
+            >
+              Connected, waiting for the file
+            </button>
+          </div>
+        </div>
+      </div> }
+          {admin && FileSelected && (
+            <div className="fixed inset-0 z-50">
+              <div className="absolute inset-0 bg-black bg-opacity-60"></div>
+              <div className="absolute bottom-4 left-4 bg-gray-900 text-white rounded-lg shadow-xl p-6 w-80">
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-xl font-bold text-white">
+                    Your Room is ready
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setFileSelectedAlready(false);
+                    }}
+                    className="text-gray-400 hover:text-gray-200"
+                  >
+                    <span className="sr-only">Close</span>
+                    &#x2715;
+                  </button>
+                </div>
+                <p className="text-gray-400 mb-4">
+                  Or share this room link with others you want in the room
+                </p>
+                <div className="bg-gray-800 p-2 rounded-lg flex items-center justify-between mb-4">
+                  <span className="text-gray-300 text-sm" style={{ width: "70%" }}>
+                    http://localhost:5317/{room}
+                  </span>
+                  <button className="text-blue-400 hover:text-blue-500">
+                    &#128203;
+                  </button>
+                </div>
+                <p className="text-gray-400 text-sm mb-4">
+                  <span className="inline-block align-middle mr-1">
+                    &#9432;
+                  </span>{" "}
+                  People who use this meeting link must get your permission
+                  before they can join.
+                </p>
+                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md mb-4">
+                  Share
                 </button>
-                <button onClick={() => onMuteorStopStreaming(false, videoMute)}>
-                  {!videoMute ? "Block Video!" : "Unblock Video"}
-                </button>
+                <p className="text-gray-400 text-sm">
+                  Joined as student.arbind@gmail.com
+                </p>
               </div>
             </div>
           )}
-          <button onClick={onLeave}>leave</button>
-          <div className="chat-box">
-            {typing.map((per, index) => {
-              return <div key={index}>{per.name}: Typing.....</div>;
-            })}
-            {chats?.length > 0 ? (
-              chats.map((evr, index) => {
-                return (
-                  <div key={index}>
-                    <h3>{evr.name}</h3>
-                    <h2>{evr.message}</h2>
-                    <h4>{evr.time}</h4>
-                  </div>
-                );
-              })
-            ) : (
-              <div>No chats yet!</div>
-            )}
-            <input
-              type="text"
-              id="input-text"
-              value={message}
-              onChange={(event) => setMessageWithDebounce(event.target.value)}
-            />
-            <button onClick={sendMessage}>Send Message</button>
-          </div>
-          {admin && (
-            <div>
-              <h3>you are the admin and have all controls</h3>
+          {(admin && openUploadModal) || (afterDownloadPopUp && !downloadCompleted) ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black bg-opacity-60"></div>
+              <div className="relative bg-gray-900 text-white rounded-lg shadow-xl p-6 w-80">
+                <h2 className="text-xl font-bold text-white mb-4 text-center">
+                  Upload a File
+                </h2>
+                <div className="mb-4">
+                  <input
+                    type="file"
+                    id="select-video"
+                    ref={videoFile}
+                    onChange={uploadVideo}
+                    className="w-full text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                  />
+                  {file && (
+                    <p className="mt-2 text-sm text-gray-400">
+                      Selected file: {file.name}
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-center">
+                  <button
+                    onClick={onUpload}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md"
+                  >
+                    Upload File
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
-          <div className="video-media">
-            <input
-              type="file"
-              id="select-video"
-              ref={videoFile}
-              onChange={uploadVideo}
-            />
-            {afterFileSelected && (
-              <div>
+          ) : null}
+          {admin &&
+            requests.length > 0 && 
+              <div className="fixed inset-0 z-50 flex items-end justify-end p-4">
+            <div className="absolute inset-0 bg-black opacity-50"></div>
+
+            <div className="relative z-10 flex flex-col space-y-4">
+             
+            { requests.map((payload, index) => {
+              return (
+           <div className="bg-gray-900 text-white rounded-lg shadow-xl p-6 w-80" key={index}>
+                <h2 className="text-xl font-bold text-white mb-4">
+                  {!Array.isArray(payload) ? payload.name : ""}, wants to join
+                </h2>
+                <p className="text-gray-400 mb-6">
+                  Are you sure you want to Accept this user to join your room?
+                </p>
+                <div className="flex justify-end space-x-4">
+                  <button className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md shadow-md" onClick={() => {
+                      websocket.emit("reject:socketid", {
+                        socketId: !Array.isArray(payload) ? payload.id : "",
+                        room,
+                      });
+                      clearRequest(index);
+                    }}>
+                    Reject
+                  </button>
+                  <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md" onClick={() => {
+                      websocket.emit("sign:accept", {
+                        socketId: !Array.isArray(payload) ? payload.id : "",
+                        room,
+                      });
+                      clearRequest(index);
+                    }}>
+                    Accept
+                  </button>
+                </div>
+              </div> )
+            })}
+            </div>
+          </div> }
+
+          {leaveModal && <div
+        id="modelConfirm"
+        className="fixed z-50 inset-0 bg-gray-900 bg-opacity-60 overflow-y-auto h-full w-full px-4 "
+      >
+        <div className="relative top-40 mx-auto shadow-xl rounded-md bg-white max-w-md">
+          <div className="flex justify-end p-2">
+            <button
+              type="button"
+              className="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                ></path>
+              </svg>
+            </button>
+          </div>
+
+          <div className="p-6 pt-0 text-center">
+            <h3 className="text-xl font-normal text-gray-500 mt-5 mb-6">
+              Are you sure you want to Exit this room? can't rejoin after then!
+            </h3>
+            <a
+              href="#"
+              onClick={onLeave}
+              className="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-base inline-flex items-center px-3 py-2.5 text-center mr-2"
+            >
+              Yes, I'm sure
+            </a>
+            <a
+              href="#"
+              onClick={() => {
+                setLeaveModal(false);
+              }}
+              className="text-gray-900 bg-white hover:bg-gray-100 focus:ring-4 focus:ring-cyan-200 border border-gray-200 font-medium inline-flex items-center rounded-lg text-base px-3 py-2.5 text-center"
+              data-modal-toggle="delete-user-modal"
+            >
+              No, cancel
+            </a>
+          </div>
+        </div>
+      </div>}
+          {enableFfModal ? (
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
+              <div className="bg-gray-800 text-white rounded-lg shadow-2xl p-8 max-w-lg w-full">
+                <h2 className="text-4xl font-extrabold text-center text-white-400 mb-6">
+                  Enter Full Screen
+                </h2>
+                <p className="text-center text-gray-300 text-lg mb-8">
+                  For a more immersive experience, click the button below to go
+                  full screen.
+                </p>
+                <div className="flex justify-center">
+                  <button className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg shadow-lg">
+                    Go Full Screen
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}{" "}
+          {!removePopUp ? (
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
+              <div className="bg-gray-800 text-white rounded-lg shadow-2xl p-8 max-w-lg w-full">
+                <h2 className="text-4xl font-extrabold text-center text-white mb-6">
+                  Rotate Your Device
+                </h2>
+                <div className="flex justify-center mb-4">
+                  <img
+                    src="data:image/png;base64,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
+" // Replace with actual image URL
+                    alt="Rotate to Landscape"
+                    className="w-1/3 border-4 border-yellow-400 rounded"
+                  />
+                  <img
+                    src="data:image/png;base64,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
+" // Replace with actual image URL
+                    alt="Turn on Landscape"
+                    className="w-1/3 border-4 border-yellow-400 rounded ml-4"
+                  />
+                </div>
+                <p className="text-center text-gray-300 text-lg mb-8">
+                  For the best movie streaming experience, please switch to
+                  landscape mode.
+                </p>
+                <div className="flex justify-center">
+                  <button className="bg-blue-700 hover:bg-blue-800 text-white font-extrabold py-3 px-6 rounded-lg tracking-wider text-xl shadow-lg">
+                    Got it!
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div
+            style={{
+              display: "flex",
+              backgroundColor: "#292929",
+              position: "relative",
+            }}
+          >
+            <div id="left">
+              <div
+                id="videoFrame"
+                style={{
+                  height: showOptions
+                    ? isArrowUped
+                      ? "96vh"
+                      : "80vh"
+                    : "100vh",
+                }}
+              >
                 <video
+                  controls
+                  crossOrigin="anonymous"
+                  id="select-video"
                   ref={videoMediaRef}
                   src={media}
-                  width={"300px"}
-                  height={"400px"}
                   onPause={syncPause}
                   onPlay={syncPlay}
                   onSeeking={onContinousSeeking}
                   onRateChange={onSyncRate}
                   loop={false}
                   onTimeUpdate={onTimeUpdate}
+                  //         ></video>
                 ></video>
               </div>
-            )}
-          </div>
-
-          <div className="emoji-container" ref={container}></div>
-
-          <div className="emoji-list">
-            <ul>
-              <li>
-                <button
-                  id="0"
-                  ref={emojies[0]}
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                  aria-label="Heart emoji"
-                >
-                  💖
-                </button>
-              </li>
-              <li>
-                <button
-                  id="1"
-                  ref={emojies[1]}
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                  aria-label="Thumbs up emoji"
-                >
-                  👍
-                </button>
-              </li>
-              <li>
-                <button
-                  id="2"
-                  ref={emojies[2]}
-                  aria-label="Party popper emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
+              <canvas
+                ref={canvasRef}
+                width={150}
+                height={150}
+                style={{ display: "none" }}
+              />
+              {isEmojiOpened ? (
+                <div
+                  className="emoji-list"
+                  style={{
+                    marginTop: "-3rem",
+                    zIndex: "999",
+                    backgroundColor: "#2c2c2c",
+                    borderRadius: "50px",
+                    paddingTop: ".5rem",
+                    paddingBottom: ".5rem",
+                    animation: isEmojiOpened
+                      ? "fadeIn 0.2s ease-in-out"
+                      : "fadeOut 0.5s ease-in-out",
+                    boxShadow: "0 8px 16px rgba(0, 0, 0, 0.25)", // Added box shadow
                   }}
                 >
-                  🎉
-                </button>
-              </li>
-              <li>
-                <button
-                  id="3"
-                  ref={emojies[3]}
-                  aria-label="Clapping hands emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  👏
-                </button>
-              </li>
-              <li>
-                <button
-                  id="4"
-                  ref={emojies[4]}
-                  aria-label="Laughing emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  😂
-                </button>
-              </li>
-              <li>
-                <button
-                  id="5"
-                  ref={emojies[5]}
-                  aria-label="Surprised face emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  😯
-                </button>
-              </li>
-              <li>
-                <button
-                  id="6"
-                  ref={emojies[6]}
-                  aria-label="Crying face emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  😢
-                </button>
-              </li>
-              <li>
-                <button
-                  id="7"
-                  ref={emojies[7]}
-                  aria-label="Thinking face emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  🤔
-                </button>
-              </li>
-              <li>
-                <button
-                  id="8"
-                  ref={emojies[8]}
-                  aria-label="Thumbs down emoji"
-                  onClick={(event) => {
-                    handleEmojiClick(event);
-                  }}
-                >
-                  👎
-                </button>
-              </li>
-            </ul>
-          </div>
-          {admin &&
-            requests.length > 0 &&
-            requests.map((payload, index) => {
-              return (
-                <div key={index}>
-                  <h3>{!Array.isArray(payload) ? payload.name : ""}</h3>
-                  <button
-                    className="reject"
-                    onClick={() => {
-                      websocket.emit("reject:socketid", {
-                        socketId: !Array.isArray(payload) ? payload.id : "",
-                        room,
-                      });
-                      clearRequest(index);
-                    }}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    className="accept"
-                    onClick={() => {
-                      websocket.emit("sign:accept", {
-                        socketId: !Array.isArray(payload) ? payload.id : "",
-                        room,
-                      });
-                      clearRequest(index);
-                    }}
-                  >
-                    Accept
-                  </button>
+                  <ul>
+                    <li>
+                      <button aria-label="Heart emoji">💖</button>
+                    </li>
+                    <li>
+                      <button aria-label="Thumbs up emoji">👍</button>
+                    </li>
+                    <li>
+                      <button aria-label="Party popper emoji">🎉</button>
+                    </li>
+                    <li>
+                      <button aria-label="Clapping hands emoji">👏</button>
+                    </li>
+                    <li>
+                      <button aria-label="Laughing emoji">😂</button>
+                    </li>
+                    <li>
+                      <button aria-label="Surprised face emoji">😯</button>
+                    </li>
+                    <li>
+                      <button aria-label="Crying face emoji">😢</button>
+                    </li>
+                    <li>
+                      <button aria-label="Thinking face emoji">🤔</button>
+                    </li>
+                    <li>
+                      <button aria-label="Thumbs down emoji">👎</button>
+                    </li>
+                  </ul>
                 </div>
-              );
-            })}
-        </div>
+              ) : null}
+              <div
+                style={{
+                  width: "80%",
+                  borderRadius: "1rem",
+                  height: "15vh",
+                  position: "relative",
+                  backgroundColor: "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginTop: isArrowUped ? "-55rem" : "1rem",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  className="options"
+                  style={{ marginTop: showOptions ? "0" : "10rem" }}
+                >
+                  {" "}
+                  <div
+                    onClick={handleChat}
+                    className="option"
+                    style={{
+                      backgroundColor: !isChatOpen ? "#373737" : "#F84242",
+                    }}
+                  >
+                    <i className="fa-solid fa-comments"></i>
+                  </div>
+                  <div
+                    onClick={() => {
+                      setIsEmojiOpened(!isEmojiOpened);
+                    }}
+                    className="option"
+                    style={{
+                      backgroundColor: isEmojiOpened ? "#F84242" : "#373737",
+                    }}
+                  >
+                    <i
+                      className="fa-solid fa-face-laugh-beam"
+                      style={{ color: "#ffffff" }}
+                    ></i>
+                  </div>
+                  <div
+                    onClick={() => {
+                      setIsArrowUped(true);
+                    }}
+                    className="option"
+                    style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
+                  >
+                    <i
+                      className="fa-solid fa-angle-down"
+                      style={{ color: "#ffffff" }}
+                    ></i>
+                  </div>
+                  <div
+                    onClick={handleMic}
+                    className="option"
+                    style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
+                  >
+                    <i
+                      className={`fa-solid fa-${
+                        isMute ? "microphone-slash" : "microphone"
+                      }`}
+                    ></i>
+                  </div>
+                  <div
+                    onClick={handleVisibility}
+                    className="option"
+                    style={{
+                      backgroundColor: isVisible ? "#373737" : "#F84242",
+                    }}
+                  >
+                    <i
+                      className={`fa-solid fa-${
+                        isVisible ? "video" : "video-slash"
+                      }`}
+                    ></i>
+                  </div>
+                  <div
+                    onClick={handleMic}
+                    className="option"
+                    style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
+                  >
+                    {" "}
+                    <i
+                      className="fa-solid fa-gear"
+                      style={{ color: "#ffffff" }}
+                    ></i>{" "}
+                  </div>
+                  <div className="option" onClick={() => {
+                    setLeaveModal(true);
+                  }}>
+                    <i
+                      style={{ transform: "rotate(135deg)" }}
+                      className="fa-solid fa-phone"
+                    ></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="right">
+              <div className="frame">
+                {streams.map((webrtc) => (
+                  <StreamItem
+                    key={webrtc.socketId}
+                    webrtc={webrtc}
+                    admin={admin}
+                    socketBio={socketBio}
+                    kickOut={kickOut}
+                    setStreams={setStreams}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div
+              id="chat"
+              style={{
+                width: isChatOpen
+                  ? phoneOrPc !== "mobile"
+                    ? "40vw"
+                    : "60vw"
+                  : "25vw",
+              }}
+              className={isChatOpen ? "show relative" : "hide"}
+            >
+              <i
+                onClick={handleChat}
+                style={{ color: "grey" }}
+                className="fa-solid fa-xmark absolute top-5 right-5 z-10 text-xl"
+              ></i>
+              <div className="flex flex-col h-full">
+                <div
+                  className="flex-grow overflow-y-auto p-4"
+                  style={{
+                    scrollbarWidth: "none", // For Firefox
+                  }}
+                >
+                  <style>
+                    {`
+          /* Hide scrollbar for Chrome, Safari, and Opera */
+          #chat .flex-grow::-webkit-scrollbar {
+            display: none;
+          }
+          /* Hide scrollbar for IE, Edge, and Firefox */
+          #chat .flex-grow {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+          }
+        `}
+                  </style>
+                  {/* Chat messages here */}
+                  <div className="w-full">
+                    <div className="grid pb-1">
+                      <div className="flex gap-2.5 mb-4">
+                        <div className="grid">
+                          <h5 className="text-gray-900 text-sm font-semibold leading-snug pb-1">
+                            Shanay Cruz
+                          </h5>
+                          <div className="w-max grid" style={{ width: "98%" }}>
+                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
+                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you ready?
+                                Guts, I need a review of work. Are you
+                                ready?Guts, I need a review of work. Are you
+                                ready?
+                              </h5>
+                            </div>
+                            <div className="justify-end items-center inline-flex mb-1">
+                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                                05:14 PM
+                              </h6>
+                            </div>
+                          </div>
+                          <div className="w-max grid">
+                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
+                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
+                                Let me know
+                              </h5>
+                            </div>
+                            <div className="justify-end items-center inline-flex mb-1">
+                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                                05:14 PM
+                              </h6>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2.5 justify-end pb-1">
+                      <div>
+                        <div className="grid mb-2">
+                          <h5 className="text-right text-gray-900 text-sm font-semibold leading-snug pb-1">
+                            You
+                          </h5>
+                          <div className="px-3 py-2 bg-indigo-600 rounded">
+                            <h2 className="text-white text-sm font-normal leading-snug">
+                              Yes, let’s see, send your work here
+                            </h2>
+                          </div>
+                          <div className="justify-start items-center inline-flex">
+                            <h3 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                              05:14 PM
+                            </h3>
+                          </div>
+                        </div>
+                        <div className="justify-center">
+                          <div className="grid w-fit ml-auto">
+                            <div className="px-3 py-2 bg-indigo-600 rounded">
+                              <h2 className="text-white text-sm font-normal leading-snug">
+                                Anyone on for lunch today
+                              </h2>
+                            </div>
+                            <div className="justify-start items-center inline-flex">
+                              <h3 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                                You
+                              </h3>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <i className="fa-regular fa-paper-plane absolute bottom-10 right-6 z-10 text-xl"></i>
+                <textarea
+                  placeholder="Write something..."
+                  className="w-[90%] bottom-5 rounded-lg p-2 bg-gray-200 mt-4"
+                  style={{ minHeight: "5rem", maxHeight: "20vh" }}
+                ></textarea>
+              </div>
+            </div>
+          </div>
+        </>
+        // <div className="room">
+        //   {!admin ? (
+        //     <>
+        //       <h2>
+        //         download progress: {downloadProgress.progressTransferFile}
+        //       </h2>
+        //       <h3>
+        //         speed: {downloadProgress.downloadSpeed}{" "}
+        //         {downloadProgress.speedUnit}
+        //       </h3>
+        //     </>
+        //   ) : null}
+        //   {streams.length > 0 && (
+        //     <div>
+        //       Livecams
+        //       {streams.map((webrtc) => (
+        //         <StreamItem
+        //           key={webrtc.socketId}
+        //           webrtc={webrtc}
+        //           admin={admin}
+        //           socketBio={socketBio}
+        //           kickOut={kickOut}
+        //         />
+        //       ))}
+        //       {speakers.map((wbcc, index) => {
+        //         return (
+        //           <div key={index}>
+        //             for user: {wbcc.socketId} and{" "}
+        //             {wbcc.speaking ? "😂😂" : "💀💀💀"}
+        //           </div>
+        //         );
+        //       })}
+        //       <div className="controlers">
+        //         <button onClick={() => onMuteorStopStreaming(true, mute)}>
+        //           {!mute ? "Mute" : "Unmute"}
+        //         </button>
+        //         <button onClick={() => onMuteorStopStreaming(false, videoMute)}>
+        //           {!videoMute ? "Block Video!" : "Unblock Video"}
+        //         </button>
+        //       </div>
+        //     </div>
+        //   )}
+        //   <button onClick={onLeave}>leave</button>
+        //   <div className="chat-box">
+        //     {typing.map((per, index) => {
+        //       return <div key={index}>{per.name}: Typing.....</div>;
+        //     })}
+        //     {chats?.length > 0 ? (
+        //       chats.map((evr, index) => {
+        //         return (
+        //           <div key={index}>
+        //             <h3>{evr.name}</h3>
+        //             <h2>{evr.message}</h2>
+        //             <h4>{evr.time}</h4>
+        //           </div>
+        //         );
+        //       })
+        //     ) : (
+        //       <div>No chats yet!</div>
+        //     )}
+        //     <input
+        //       type="text"
+        //       id="input-text"
+        //       value={message}
+        //       onChange={(event) => setMessageWithDebounce(event.target.value)}
+        //     />
+        //     <button onClick={sendMessage}>Send Message</button>
+        //   </div>
+        //   {admin && (
+        //     <div>
+        //       <h3>you are the admin and have all controls</h3>
+        //     </div>
+        //   )}
+        //   <div className="video-media">
+        //     <input
+        //       type="file"
+        //       id="select-video"
+        //       ref={videoFile}
+        //       onChange={uploadVideo}
+        //     />
+        //     {afterFileSelected && (
+        //       <div>
+        //         <video
+        //           ref={videoMediaRef}
+        //           src={media}
+        //           width={"300px"}
+        //           height={"400px"}
+        //           onPause={syncPause}
+        //           onPlay={syncPlay}
+        //           onSeeking={onContinousSeeking}
+        //           onRateChange={onSyncRate}
+        //           loop={false}
+        //           onTimeUpdate={onTimeUpdate}
+        //         ></video>
+        //       </div>
+        //     )}
+        //   </div>
+
+        //   <div className="emoji-container" ref={container}></div>
+
+        //   <div className="emoji-list">
+        //     <ul>
+        //       <li>
+        //         <button
+        //           id="0"
+        //           ref={emojies[0]}
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //           aria-label="Heart emoji"
+        //         >
+        //           💖
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="1"
+        //           ref={emojies[1]}
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //           aria-label="Thumbs up emoji"
+        //         >
+        //           👍
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="2"
+        //           ref={emojies[2]}
+        //           aria-label="Party popper emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           🎉
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="3"
+        //           ref={emojies[3]}
+        //           aria-label="Clapping hands emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           👏
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="4"
+        //           ref={emojies[4]}
+        //           aria-label="Laughing emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           😂
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="5"
+        //           ref={emojies[5]}
+        //           aria-label="Surprised face emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           😯
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="6"
+        //           ref={emojies[6]}
+        //           aria-label="Crying face emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           😢
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="7"
+        //           ref={emojies[7]}
+        //           aria-label="Thinking face emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           🤔
+        //         </button>
+        //       </li>
+        //       <li>
+        //         <button
+        //           id="8"
+        //           ref={emojies[8]}
+        //           aria-label="Thumbs down emoji"
+        //           onClick={(event) => {
+        //             handleEmojiClick(event);
+        //           }}
+        //         >
+        //           👎
+        //         </button>
+        //       </li>
+        //     </ul>
+        //   </div>
+        //   {admin &&
+        //     requests.length > 0 &&
+        //     requests.map((payload, index) => {
+        //       return (
+        //         <div key={index}>
+        //           <h3>{!Array.isArray(payload) ? payload.name : ""}</h3>
+        //           <button
+        //             className="reject"
+        //             onClick={() => {
+        //               websocket.emit("reject:socketid", {
+        //                 socketId: !Array.isArray(payload) ? payload.id : "",
+        //                 room,
+        //               });
+        //               clearRequest(index);
+        //             }}
+        //           >
+        //             Reject
+        //           </button>
+        //           <button
+        //             className="accept"
+        //             onClick={() => {
+        //               websocket.emit("sign:accept", {
+        //                 socketId: !Array.isArray(payload) ? payload.id : "",
+        //                 room,
+        //               });
+        //               clearRequest(index);
+        //             }}
+        //           >
+        //             Accept
+        //           </button>
+        //         </div>
+        //       );
+        //     })}
+        // </div>
       )}
     </div>
   );

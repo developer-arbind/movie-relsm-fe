@@ -270,7 +270,7 @@ const CreateRoom = () => {
                     in
                   </span>{" "}
                 </div>
-                <p className="text-gray-100">or use email your account</p>
+                <p className="text-gray-100">remember the passcode!</p>
                 <form
                   action=""
                   className="sm:w-2/3 w-full px-4 lg:px-0 mx-auto"
