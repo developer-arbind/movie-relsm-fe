@@ -25,13 +25,16 @@ const startDuplexCommunication = () => {
       interface CUSTOMIP {
         [key: string]: string;
         credentials: string;
+
         ["socket-id"]: string;
       }
-      const customOpt: { method: string; headers: CUSTOMIP } = {
+      const customOpt: { method: string; headers: CUSTOMIP} = {
         method: "GET",
+     
         headers: {
           credentials: "include",
           "socket-id": socketiD,
+      
         },
       };
       if (customIp) {

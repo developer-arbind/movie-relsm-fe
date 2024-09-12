@@ -21,7 +21,7 @@ const StreamItem = memo(
             onClick={() => {
               setStreams((prev: any) =>
                 prev.map((itm: any) => {
-                  if (itm.socketId === socketBio.id) {
+                  if (itm.socketId === webrtc.socketId) {
                     return { ...itm, threedOT: !itm.threedOT };
                   }
                   return itm;

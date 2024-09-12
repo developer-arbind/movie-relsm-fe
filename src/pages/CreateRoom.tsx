@@ -147,7 +147,9 @@ const CreateRoom = () => {
     (async () => {
       if (yourName) {
         console.log(yourName);
-        const socketInstance = io(process.env.SERVER_PORT + "");
+        const socketInstance = io(process.env.SERVER_PORT + "", {
+          withCredentials: true
+        });
         socketInstance.connect();
         socketInstance.on("your:socket:id", (id: string) => {
           console.log("problem seems here: ", id);

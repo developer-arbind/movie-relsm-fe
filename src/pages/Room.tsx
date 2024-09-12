@@ -2,6 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useContext, useRef } from "react";
 import axios from "axios";
 import { SocketContext } from "../contexts/socketContext";
+import { v4 as uuidv4 } from 'uuid';
 import {
   returnToken,
   returnCustomIp,
@@ -91,6 +92,7 @@ const Room = () => {
   }, []);
   const [enableFfModal, setEnableFfModal] = useState(false);
   const handleMic = () => {
+     
     setIsMute((prev) => !prev);
   };
 
@@ -186,8 +188,14 @@ const Room = () => {
   const [chats, setChat] = useState<
     Array<{
       name: string;
-      message: string;
-      time: string;
+      socketId: string;
+      parentMessage: string;
+      parentTime: string;
+      uuid: string;
+      inheritedChat: Array< { 
+        message: string;
+        time: string;
+      } >
     }>
   >([]);
   const [message, setMessage] = useState<string>("");
@@ -428,6 +436,7 @@ const Room = () => {
         lastStream.ref.current.play();
       }
     }
+    
   }, [streams]);
 
   useEffect(() => {
@@ -512,15 +521,37 @@ const Room = () => {
   };
 
   const sendMessage = () => {
+    let code = uuidv4();
+    let messagesStack = chats[chats.length - 1];
+    if(chats.length > 0 && messagesStack.socketId === socketBio.id) {
+      setChat((prev) => prev.map(elements => {
+        if(elements.uuid === messagesStack.uuid) {
+          let pushedArray = elements.inheritedChat;
+          pushedArray.push({
+            message,
+            time: new Date().toDateString()
+          })
+          return {
+            ...elements,
+            inheritedChat: pushedArray
+          }
+        }
+        return elements;
+      }));
+    }else {
     setChat((prev) => [
       ...prev,
       {
         name: yourName,
-        message,
-        time: new Date().toDateString(),
+        socketId: socketBio.id,
+        parentMessage: message,
+        parentTime: new Date().toDateString(),
+        inheritedChat: [],
+        uuid: code
       },
     ]);
-    websocket.emit("send:message", { room, message });
+  } 
+    websocket.emit("send:message", { room, message, uuid: code });
   };
 
   const getCompleteFile = (
@@ -940,19 +971,43 @@ const Room = () => {
         ({
           name,
           message,
+          socketId,
+          uuid
         }: {
           name: string;
           socketId: string;
           message: string;
+          uuid: string;
         }) => {
-          setChat((prev) => [
-            ...prev,
-            {
-              name,
-              time: new Date().toDateString(),
-              message,
-            },
-          ]);
+           let messagesStack = chats[chats.length - 1];
+    if(chats.length > 0 && messagesStack.socketId === socketId) {
+      setChat((prev) => prev.map(elements => {
+        if(elements.uuid === messagesStack.uuid) {
+          let pushedArray = elements.inheritedChat;
+          pushedArray.push({
+            message,
+            time: new Date().toDateString()
+          })
+          return {
+            ...elements,
+            inheritedChat: pushedArray
+          }
+        }
+        return elements;
+      }));
+    }else {
+    setChat((prev) => [
+      ...prev,
+      {
+        name: name,
+        socketId: socketBio.id,
+        parentMessage: message,
+        parentTime: new Date().toDateString(),
+        inheritedChat: [],
+        uuid
+      },
+    ]);
+  } 
           if (chatNotOpenedOrTabUnvisible.current) {
             const img = "/to-do-notifications/img/icon-128.png";
             const text = `${name}: ${message}`;
@@ -2153,6 +2208,7 @@ const Room = () => {
       )}
       {roomUnlocked === 0 && ( // 0 means room unlocked!!
         <>
+        
           {isArrowUped ? (
             <div
               onClick={() => {
@@ -2465,6 +2521,8 @@ const Room = () => {
               backgroundColor: "#292929",
               position: "relative",
             }}
+            className="emoji-getter"
+            ref={container}
           >
             <div id="left">
               <div
@@ -2514,35 +2572,116 @@ const Room = () => {
                     boxShadow: "0 8px 16px rgba(0, 0, 0, 0.25)", // Added box shadow
                   }}
                 >
-                  <ul>
-                    <li>
-                      <button aria-label="Heart emoji">💖</button>
-                    </li>
-                    <li>
-                      <button aria-label="Thumbs up emoji">👍</button>
-                    </li>
-                    <li>
-                      <button aria-label="Party popper emoji">🎉</button>
-                    </li>
-                    <li>
-                      <button aria-label="Clapping hands emoji">👏</button>
-                    </li>
-                    <li>
-                      <button aria-label="Laughing emoji">😂</button>
-                    </li>
-                    <li>
-                      <button aria-label="Surprised face emoji">😯</button>
-                    </li>
-                    <li>
-                      <button aria-label="Crying face emoji">😢</button>
-                    </li>
-                    <li>
-                      <button aria-label="Thinking face emoji">🤔</button>
-                    </li>
-                    <li>
-                      <button aria-label="Thumbs down emoji">👎</button>
-                    </li>
-                  </ul>
+                   <ul>
+              <li>
+                <button
+                  id="0"
+                  ref={emojies[0]}
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                  aria-label="Heart emoji"
+                >
+                  💖
+                </button>
+              </li>
+              <li>
+                <button
+                  id="1"
+                  ref={emojies[1]}
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                  aria-label="Thumbs up emoji"
+                >
+                  👍
+                </button>
+              </li>
+              <li>
+                <button
+                  id="2"
+                  ref={emojies[2]}
+                  aria-label="Party popper emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  🎉
+                </button>
+              </li>
+              <li>
+                <button
+                  id="3"
+                  ref={emojies[3]}
+                  aria-label="Clapping hands emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  👏
+                </button>
+              </li>
+              <li>
+                <button
+                  id="4"
+                  ref={emojies[4]}
+                  aria-label="Laughing emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  😂
+                </button>
+              </li>
+              <li>
+                <button
+                  id="5"
+                  ref={emojies[5]}
+                  aria-label="Surprised face emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  😯
+                </button>
+              </li>
+              <li>
+                <button
+                  id="6"
+                  ref={emojies[6]}
+                  aria-label="Crying face emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  😢
+                </button>
+              </li>
+              <li>
+                <button
+                  id="7"
+                  ref={emojies[7]}
+                  aria-label="Thinking face emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  🤔
+                </button>
+              </li>
+              <li>
+                <button
+                  id="8"
+                  ref={emojies[8]}
+                  aria-label="Thumbs down emoji"
+                  onClick={(event) => {
+                    handleEmojiClick(event);
+                  }}
+                >
+                  👎
+                </button>
+              </li>
+            </ul>
                 </div>
               ) : null}
               <div
@@ -2592,7 +2731,7 @@ const Room = () => {
                       setIsArrowUped(true);
                     }}
                     className="option"
-                    style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
+                    style={{ backgroundColor: "#373737" }}
                   >
                     <i
                       className="fa-solid fa-angle-down"
@@ -2600,7 +2739,10 @@ const Room = () => {
                     ></i>
                   </div>
                   <div
-                    onClick={handleMic}
+                    onClick={() => {
+                      setIsMute(!isMute);
+                      onMuteorStopStreaming(true, mute); 
+                    }}
                     className="option"
                     style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
                   >
@@ -2611,7 +2753,10 @@ const Room = () => {
                     ></i>
                   </div>
                   <div
-                    onClick={handleVisibility}
+                    onClick={() => {
+                      setIsVisible(!isVisible);
+                      onMuteorStopStreaming(false,videoMute);
+                    }}
                     className="option"
                     style={{
                       backgroundColor: isVisible ? "#373737" : "#F84242",
@@ -2626,7 +2771,7 @@ const Room = () => {
                   <div
                     onClick={handleMic}
                     className="option"
-                    style={{ backgroundColor: isMute ? "#F84242" : "#373737" }}
+                    style={{ backgroundColor: "#373737" }}
                   >
                     {" "}
                     <i
@@ -2698,69 +2843,30 @@ const Room = () => {
                   </style>
                   {/* Chat messages here */}
                   <div className="w-full">
-                    <div className="grid pb-1">
-                      <div className="flex gap-2.5 mb-4">
-                        <div className="grid">
-                          <h5 className="text-gray-900 text-sm font-semibold leading-snug pb-1">
-                            Shanay Cruz
-                          </h5>
-                          <div className="w-max grid" style={{ width: "98%" }}>
-                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
-                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you ready?
-                                Guts, I need a review of work. Are you
-                                ready?Guts, I need a review of work. Are you
-                                ready?
-                              </h5>
-                            </div>
-                            <div className="justify-end items-center inline-flex mb-1">
-                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
-                                05:14 PM
-                              </h6>
-                            </div>
-                          </div>
-                          <div className="w-max grid">
-                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
-                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
-                                Let me know
-                              </h5>
-                            </div>
-                            <div className="justify-end items-center inline-flex mb-1">
-                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
-                                05:14 PM
-                              </h6>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2.5 justify-end pb-1">
-                      <div>
-                        <div className="grid mb-2">
+                    {chats.length > 0 ? chats.map((content, index) => {
+                      return content.socketId === socketBio.id ? <div className="flex gap-2.5 justify-end pb-1" key={index}>
+                         <div>
+                           <div className="grid mb-2">
                           <h5 className="text-right text-gray-900 text-sm font-semibold leading-snug pb-1">
                             You
                           </h5>
                           <div className="px-3 py-2 bg-indigo-600 rounded">
                             <h2 className="text-white text-sm font-normal leading-snug">
-                              Yes, let’s see, send your work here
+                              {content.parentMessage}
                             </h2>
                           </div>
                           <div className="justify-start items-center inline-flex">
                             <h3 className="text-gray-500 text-xs font-normal leading-4 py-1">
-                              05:14 PM
+                              {content.parentTime}
                             </h3>
                           </div>
                         </div>
-                        <div className="justify-center">
+                        {content.inheritedChat.map((yourMessages) => {
+                        return <div className="justify-center">
                           <div className="grid w-fit ml-auto">
                             <div className="px-3 py-2 bg-indigo-600 rounded">
                               <h2 className="text-white text-sm font-normal leading-snug">
-                                Anyone on for lunch today
+                                {yourMessages.message}
                               </h2>
                             </div>
                             <div className="justify-start items-center inline-flex">
@@ -2770,15 +2876,55 @@ const Room = () => {
                             </div>
                           </div>
                         </div>
+                      })}</div></div> : <div className="grid pb-1" key={index}> 
+                      <div className="flex gap-2.5 mb-4">
+                        <div className="grid">
+                          <h5 className="text-gray-900 text-sm font-semibold leading-snug pb-1">
+                            {content.name}
+                          </h5><div className="w-max grid" style={{ width: "98%" }}>
+                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
+                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
+                               {content.parentMessage}
+                              </h5>
+                            </div>
+                            <div className="justify-end items-center inline-flex mb-1">
+                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                                {content.parentTime}
+                              </h6>
+                            </div>
+                          </div>{content.inheritedChat.map((hisHerMessages) => {
+                            return  <div className="w-max grid">
+                            <div className="px-3.5 py-2 bg-gray-100 rounded justify-start items-center gap-3 inline-flex">
+                              <h5 className="text-gray-900 text-sm font-normal leading-snug">
+                                {hisHerMessages.message}
+                              </h5>
+                            </div>
+                            <div className="justify-end items-center inline-flex mb-1">
+                              <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
+                                {hisHerMessages.message}
+                              </h6>
+                            </div>
+                          </div>
+                       })}</div>
                       </div>
                     </div>
+                    }) : null}
                   </div>
                 </div>
-                <i className="fa-regular fa-paper-plane absolute bottom-10 right-6 z-10 text-xl"></i>
+                <div className="p-2 text-sm text-gray-500">
+                  {typing.map((per, index) => {
+              return <span key={index}>{per.name},</span>;
+            })}
+              are typing...
+    </div>
+                <i onClick={sendMessage} className="fa-regular fa-paper-plane absolute bottom-10 right-6 z-10 text-xl"></i>
                 <textarea
                   placeholder="Write something..."
                   className="w-[90%] bottom-5 rounded-lg p-2 bg-gray-200 mt-4"
                   style={{ minHeight: "5rem", maxHeight: "20vh" }}
+                   id="input-text"
+              value={message}
+              onChange={(event) => setMessageWithDebounce(event.target.value)}
                 ></textarea>
               </div>
             </div>
@@ -2828,9 +2974,9 @@ const Room = () => {
         //   )}
         //   <button onClick={onLeave}>leave</button>
         //   <div className="chat-box">
-        //     {typing.map((per, index) => {
-        //       return <div key={index}>{per.name}: Typing.....</div>;
-        //     })}
+            // {typing.map((per, index) => {
+            //   return <div key={index}>{per.name}: Typing.....</div>;
+            // })}
         //     {chats?.length > 0 ? (
         //       chats.map((evr, index) => {
         //         return (
@@ -2846,9 +2992,9 @@ const Room = () => {
         //     )}
         //     <input
         //       type="text"
-        //       id="input-text"
-        //       value={message}
-        //       onChange={(event) => setMessageWithDebounce(event.target.value)}
+              // id="input-text"
+              // value={message}
+              // onChange={(event) => setMessageWithDebounce(event.target.value)}
         //     />
         //     <button onClick={sendMessage}>Send Message</button>
         //   </div>
@@ -2884,118 +3030,118 @@ const Room = () => {
 
         //   <div className="emoji-container" ref={container}></div>
 
-        //   <div className="emoji-list">
-        //     <ul>
-        //       <li>
-        //         <button
-        //           id="0"
-        //           ref={emojies[0]}
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //           aria-label="Heart emoji"
-        //         >
-        //           💖
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="1"
-        //           ref={emojies[1]}
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //           aria-label="Thumbs up emoji"
-        //         >
-        //           👍
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="2"
-        //           ref={emojies[2]}
-        //           aria-label="Party popper emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           🎉
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="3"
-        //           ref={emojies[3]}
-        //           aria-label="Clapping hands emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           👏
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="4"
-        //           ref={emojies[4]}
-        //           aria-label="Laughing emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           😂
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="5"
-        //           ref={emojies[5]}
-        //           aria-label="Surprised face emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           😯
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="6"
-        //           ref={emojies[6]}
-        //           aria-label="Crying face emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           😢
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="7"
-        //           ref={emojies[7]}
-        //           aria-label="Thinking face emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           🤔
-        //         </button>
-        //       </li>
-        //       <li>
-        //         <button
-        //           id="8"
-        //           ref={emojies[8]}
-        //           aria-label="Thumbs down emoji"
-        //           onClick={(event) => {
-        //             handleEmojiClick(event);
-        //           }}
-        //         >
-        //           👎
-        //         </button>
-        //       </li>
-        //     </ul>
-        //   </div>
+          // <div className="emoji-list">
+          //   <ul>
+          //     <li>
+          //       <button
+          //         id="0"
+          //         ref={emojies[0]}
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //         aria-label="Heart emoji"
+          //       >
+          //         💖
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="1"
+          //         ref={emojies[1]}
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //         aria-label="Thumbs up emoji"
+          //       >
+          //         👍
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="2"
+          //         ref={emojies[2]}
+          //         aria-label="Party popper emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         🎉
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="3"
+          //         ref={emojies[3]}
+          //         aria-label="Clapping hands emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         👏
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="4"
+          //         ref={emojies[4]}
+          //         aria-label="Laughing emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         😂
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="5"
+          //         ref={emojies[5]}
+          //         aria-label="Surprised face emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         😯
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="6"
+          //         ref={emojies[6]}
+          //         aria-label="Crying face emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         😢
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="7"
+          //         ref={emojies[7]}
+          //         aria-label="Thinking face emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         🤔
+          //       </button>
+          //     </li>
+          //     <li>
+          //       <button
+          //         id="8"
+          //         ref={emojies[8]}
+          //         aria-label="Thumbs down emoji"
+          //         onClick={(event) => {
+          //           handleEmojiClick(event);
+          //         }}
+          //       >
+          //         👎
+          //       </button>
+          //     </li>
+          //   </ul>
+          // </div>
         //   {admin &&
         //     requests.length > 0 &&
         //     requests.map((payload, index) => {
