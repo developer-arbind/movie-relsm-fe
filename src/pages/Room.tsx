@@ -62,9 +62,10 @@ const Room = () => {
   const [openMenu, setOpenMenu] = useState(false); // Single state for menu
   const streamRef = useRef(null); // Ref to store the media stream
   const canvasRef = useRef(null);
-
+  const pushToEnd  = useRef<HTMLDivElement | null>(null);
   const [isArrowUped, setIsArrowUped] = useState(false);
   const [isEmojiOpened, setIsEmojiOpened] = useState(false);
+  const [minimizedBar, setMiniMizedBar] = useState<boolean>(false);
 
   function getDeviceType() {
     const userAgent = navigator.userAgent || navigator.vendor || window.opera;
@@ -102,6 +103,7 @@ const Room = () => {
 
   const handleChat = () => {
     setIsChatOpen((prev) => !prev);
+    pushToEnd.current!.scrollIntoView({ behavior: "smooth" });
   };
 
   const handleOptions = () => {
@@ -170,6 +172,11 @@ const Room = () => {
   const [setted, setSetted] = useState<boolean>(false);
   const { setName$ } = startDuplexCommunication();
   const [admin, setAdmin] = useState<boolean>(false);
+  const adminRef = useRef<boolean>(admin);
+
+  useEffect (() => {
+    adminRef.current = admin;
+  }, [admin])
   const localStream = useRef<MediaStream | null>(null);
   const videoMediaRef: React.RefObject<HTMLVideoElement> = useRef(null);
   const previousTimeline = useRef<number>(0);
@@ -198,12 +205,16 @@ const Room = () => {
       } >
     }>
   >([]);
+  const apneChatsRef = useRef<any>(null);
+  useEffect ( () => {
+    apneChatsRef.current = chats;
+  }, [chats] )
   const [message, setMessage] = useState<string>("");
   useEffect(() => {
-    if (!localStorage.getItem("pre-peer")) {
+    // if (!localStorage.getItem("pre-peer")) {
       PeerConnections.current.push({ pc: new Peer(), socketId: socketBio.id });
-      localStorage.setItem("pre-peer", "true");
-    }
+      // localStorage.setItem("pre-peer", "true");
+    // }
   }, []);
 
   const currentPeeringSocket = useRef<string>("");
@@ -237,26 +248,23 @@ const Room = () => {
 
   const container: React.RefObject<HTMLDivElement> = useRef(null);
   const chatNotOpenedOrTabUnvisible = useRef<boolean>(false);
-  const emojies: Array<React.RefObject<HTMLButtonElement>> = [
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-    useRef(null),
-  ];
+
 
   let blockViceVersa = useRef<boolean>(true);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [speakers, setSpeakers] = useState<Speaking[]>([]);
   const iamTryingToConnect = useRef<boolean>(false);
+  const [totalFileSize, setTotalSize] = useState({
+    sizeUnit: "",
+    size: 0
+  });
   const [downloadProgress, setDownloadProgress] = useState({
     progressTransferFile: 0,
     downloadSpeed: "",
     speedUnit: "",
+    mbLeft: "",
+    sizeUnit: "",
+    timeLeft: ""
   });
   const socketIds = useRef<Array<IP>>();
   const socketIndex = useRef<number>(0);
@@ -453,6 +461,7 @@ const Room = () => {
   }, []);
 
   const onDataChannelCallback = (event: RTCDataChannelEvent) => {
+    if (hasFile) return;
     const { channel } = event;
 
     let receivedBuffer: any = [];
@@ -462,66 +471,105 @@ const Room = () => {
     let lastUpdateTime = 0;
 
     channel.onmessage = (event) => {
-      const { data } = event;
+        const { data } = event;
 
-      try {
-        if (data.byteLength) {
-          receivedBuffer.push(data);
-          totalBytesArrayBuffers += data.byteLength;
+        try {
+            if (data.byteLength) {
+                receivedBuffer.push(data);
+                totalBytesArrayBuffers += data.byteLength;
 
-          const currentTime = new Date().getTime();
-          const elapsedTime = (currentTime - startTime) / 1000; // Elapsed time in seconds
+                const currentTime = new Date().getTime();
+                const elapsedTime = (currentTime - startTime) / 1000; // Elapsed time in seconds
 
-          if (elapsedTime - lastUpdateTime >= 1) {
-            // Update UI every second
-            const speedMbps =
-              (totalBytesArrayBuffers * 8) / (1024 * 1024) / elapsedTime; // Convert bytes to bits and divide by 1,000,000 to get Mbps
-            const speedKBps = totalBytesArrayBuffers / 1024 / elapsedTime; // Calculate speed in KB/s
+                if (elapsedTime - lastUpdateTime >= 1) {
+                    // Update UI every second
+                    const speedBps = (totalBytesArrayBuffers * 8) / elapsedTime; // Speed in bits per second
+                    const speedMbps = speedBps / (1024 * 1024); // Convert bits to Megabits
+                    const speedKBps = totalBytesArrayBuffers / 1024 / elapsedTime; // Speed in KB per second
 
-            let speedValue, speedUnit;
-            if (speedMbps >= 1) {
-              speedValue = speedMbps.toFixed(2);
-              speedUnit = "Mbps";
+                    let speedValue, speedUnit;
+                    if (speedMbps >= 1) {
+                        speedValue = speedMbps.toFixed(2);
+                        speedUnit = "Mbps";
+                    } else {
+                        speedValue = speedKBps.toFixed(2);
+                        speedUnit = "KB/s";
+                    }
+
+                    // Calculate MB left
+                    const bytesRemaining = totalBytesFileBuffer - totalBytesArrayBuffers;
+                    let mbLeft: any = (bytesRemaining / (1024 * 1024)).toFixed(2); // Convert to MB
+                      let sizeUnit: string;
+
+                    if (totalBytesFileBuffer >= 1073741824) { // 1 GB in bytes
+                        mbLeft = parseFloat((bytesRemaining / (1024 * 1024 * 1024)).toFixed(2)); // Convert to GB
+                        sizeUnit = "GB";
+                    } else {
+                        mbLeft = parseFloat((bytesRemaining / (1024 * 1024)).toFixed(2)); // Convert to MB
+                        sizeUnit = "MB";
+                    }
+                    // Calculate time left
+                    const timeLeft = (bytesRemaining / speedBps).toFixed(2); // Time left in seconds
+
+                    setDownloadProgress({
+                        progressTransferFile: Math.floor((totalBytesArrayBuffers * 100) / totalBytesFileBuffer),
+                        downloadSpeed: speedValue,
+                        speedUnit: speedUnit,
+                        mbLeft: mbLeft, // Remaining MB
+                        sizeUnit,
+                        timeLeft: timeLeft, // Time left in seconds
+                    });
+
+                    lastUpdateTime = elapsedTime;
+                }
+            } else if (data === LAST_DATA_OF_FILE) {
+                getCompleteFile(receivedBuffer, totalBytesArrayBuffers, channel.label);
+                channel.close();
+
+                receivedBuffer = [];
+                totalBytesFileBuffer = 0;
+                totalBytesArrayBuffers = 0;
             } else {
-              speedValue = speedKBps.toFixed(2);
-              speedUnit = "KB/s";
+                const initMessage = JSON.parse(data); // Parse the metadata message
+                totalBytesFileBuffer = initMessage.totalByte || 0; // Store the total file size in bytes
+
+                // Check if the file size is in GB or MB
+                let fileSize: number;
+                let sizeUnit: string;
+
+                if (totalBytesFileBuffer >= 1073741824) { // 1 GB in bytes (1073741824 bytes)
+                    fileSize = parseFloat((totalBytesFileBuffer / (1024 * 1024 * 1024)).toFixed(2)); // Convert to GB
+                    sizeUnit = "GB";
+                } else {
+                    fileSize = parseFloat((totalBytesFileBuffer / (1024 * 1024)).toFixed(2)); // Convert to MB
+                    sizeUnit = "MB";
+                }
+
+                // Now you have the file size and the unit (GB or MB) to display:
+                console.log(`File size: ${fileSize} ${sizeUnit}`);
+                setTotalSize({
+                  size: fileSize,
+                  sizeUnit: sizeUnit
+                })
+                startTime = new Date().getTime();
+                lastUpdateTime = 0;
             }
-
-            setDownloadProgress({
-              progressTransferFile:
-                Math.floor((totalBytesArrayBuffers * 100) / totalBytesFileBuffer),
-              downloadSpeed: speedValue,
-              speedUnit: speedUnit,
-            });
-            lastUpdateTime = elapsedTime;
-          }
-        } else if (data === LAST_DATA_OF_FILE) {
-          getCompleteFile(
-            receivedBuffer,
-            totalBytesArrayBuffers,
-            channel.label
-          );
-          channel.close();
-
-          receivedBuffer = [];
-          totalBytesFileBuffer = 0;
-          totalBytesArrayBuffers = 0;
-        } else {
-          const initMessage = JSON.parse(data);
-          totalBytesFileBuffer = initMessage.totalByte || 0;
-          startTime = new Date().getTime();
-          lastUpdateTime = 0;
+        } catch (err) {
+            receivedBuffer = [];
+            totalBytesFileBuffer = 0;
+            totalBytesArrayBuffers = 0;
         }
-      } catch (err) {
-        receivedBuffer = [];
-        totalBytesFileBuffer = 0;
-        totalBytesArrayBuffers = 0;
-      }
     };
-  };
+};
 
   const sendMessage = () => {
     let code = uuidv4();
+     const date = new Date();
+let hours = date.getHours();
+let minutes: string | number = date.getMinutes();
+minutes = minutes < 10 ? '0' + minutes : minutes;
+hours = hours % 12 || 12;  
+const currentTime = `${hours}:${minutes}`
     let messagesStack = chats[chats.length - 1];
     if(chats.length > 0 && messagesStack.socketId === socketBio.id) {
       setChat((prev) => prev.map(elements => {
@@ -529,7 +577,7 @@ const Room = () => {
           let pushedArray = elements.inheritedChat;
           pushedArray.push({
             message,
-            time: new Date().toDateString()
+            time: currentTime
           })
           return {
             ...elements,
@@ -545,13 +593,14 @@ const Room = () => {
         name: yourName,
         socketId: socketBio.id,
         parentMessage: message,
-        parentTime: new Date().toDateString(),
+        parentTime: currentTime,
         inheritedChat: [],
         uuid: code
       },
     ]);
   } 
-    websocket.emit("send:message", { room, message, uuid: code });
+    pushToEnd.current!.scrollIntoView({ behavior: "smooth" });
+    websocket.emit("send:message", { room, message, uuid: code});
   };
 
   const getCompleteFile = (
@@ -576,6 +625,7 @@ const Room = () => {
     const blobObject = new Blob([uintArrayBuffer]);
     setdownloadCompleted(false);
     setAfterDownloadPopUp(true);
+    localStorage.setItem("has-file", "$"); 
     return downloadFile(blobObject, fileName);
   };
   const downloadFile = (blob: Blob, fileName: string) => {
@@ -633,7 +683,7 @@ const Room = () => {
       }
       (async () => {
         if (yourName && !nameAdded.current) {
-          await setName$(yourName, socketBio.id);
+          await setName$(yourName, socketBio.id, room ? room : "");
           setPromise(true);
           nameAdded.current = true;
         }
@@ -687,6 +737,11 @@ const Room = () => {
     ].pc.getOffer();
     return offer;
   };
+   const radius = 40; // Radius of the circle
+  const circumference = 2 * Math.PI * radius; // Circumference of the circle
+
+  // Calculate stroke-dashoffset based on the percentage
+  const offset = circumference - (downloadProgress.progressTransferFile / 100) * circumference;
   const setTracks = () => {
     const senders =
       PeerConnections.current[peerIndex.current].pc.peer?.getSenders();
@@ -724,6 +779,8 @@ const Room = () => {
   //     },
   //   ]);
   // };
+  const [hasFile, setHasFile] = useState<boolean>(localStorage.getItem("has-file") === "$" ? true : false);
+  const [needAFile, setNeedAFile] = useState<boolean>(hasFile);
   const getRemoteTracks = async (event: any) => {
     const nextUserStreamReference = event.streams[0];
     const track = event.track;
@@ -937,17 +994,20 @@ const Room = () => {
         // setController(true);
       });
       websocket.on("someone:sends:emoji", ({ socketId, id }) => {
-        console.log("from socket user: ", socketId);
+        
         let inIndex = Number(id);
+        console.log("from socket user(emoji explicit): ", socketId, inIndex);
         blockViceVersa.current = false;
-        emojies[inIndex].current!.click();
+        // emojies[inIndex].current!.click();
+        let emojieButton = document.getElementById(String(inIndex));
+        emojieButton?.click();
       });
 
       websocket.on("you:are:kicked:out", () => {
         onLeave();
       });
       websocket.on("room:deleted:by:admin", () => {
-        onLeave();
+        onLeave(true);
       });
 
       websocket.on("get:someone:typing", ({ name, socketId, pre }) => {
@@ -978,15 +1038,25 @@ const Room = () => {
           socketId: string;
           message: string;
           uuid: string;
+          
         }) => {
-           let messagesStack = chats[chats.length - 1];
-    if(chats.length > 0 && messagesStack.socketId === socketId) {
+             const date = new Date();
+let hours = date.getHours();
+let minutes: string | number = date.getMinutes();
+minutes = minutes < 10 ? '0' + minutes : minutes;
+hours = hours % 12 || 12;  
+
+const currentTime = `${hours}:${minutes}`
+           let messagesStack = apneChatsRef.current[apneChatsRef.current.length - 1];
+     
+    if(apneChatsRef.current.length > 0 && messagesStack.socketId === socketId) {
+          //  alert(JSON.stringify(messagesStack));
       setChat((prev) => prev.map(elements => {
         if(elements.uuid === messagesStack.uuid) {
           let pushedArray = elements.inheritedChat;
           pushedArray.push({
             message,
-            time: new Date().toDateString()
+            time: currentTime
           })
           return {
             ...elements,
@@ -1000,14 +1070,16 @@ const Room = () => {
       ...prev,
       {
         name: name,
-        socketId: socketBio.id,
+        socketId,
         parentMessage: message,
-        parentTime: new Date().toDateString(),
+        parentTime:currentTime,
         inheritedChat: [],
         uuid
       },
     ]);
   } 
+  setIsChatOpen(true);
+  pushToEnd.current!.scrollIntoView({ behavior: "smooth" });
           if (chatNotOpenedOrTabUnvisible.current) {
             const img = "/to-do-notifications/img/icon-128.png";
             const text = `${name}: ${message}`;
@@ -1058,10 +1130,12 @@ const Room = () => {
         videoMediaRef.current?.play();
       });
       websocket.on("vice:versa", ({ room, socketId }) => {
-        websocket.emit("leave:forcefull", room);
+        localStorage.removeItem("pre-peer");
+        websocket.emit("leave:forcefull", {
+      room, socketId: socketBio.id
+    });
         websocket.emit("i:am:done", { room, socketId });
         websocket.emit("kick:out", room);
-        localStorage.removeItem("pre-peer");
         history("/");
       });
 
@@ -1255,10 +1329,12 @@ const Room = () => {
 
       websocket.on("leave:invitation:for:you", ({ room, socketId }) => {
         if (!admiRef.current) {
-          websocket.emit("leave:forcefull");
+          localStorage.removeItem("pre-peer");
+          websocket.emit("leave:forcefull", {
+      room, socketId: socketBio.id
+    });
           websocket.emit("i:am:done", { room, socketId });
           websocket.emit("kick:out", room);
-          localStorage.removeItem("pre-peer");
           history("/");
         }
       });
@@ -1277,23 +1353,23 @@ const Room = () => {
       });
 
       document.addEventListener("visibilitychange", function () {
-        if (document.hidden) {
-          console.log("Browser tab is hidden");
-          chatNotOpenedOrTabUnvisible.current = true;
-          try {
-            videoMediaRef.current!.pause();
-          } catch (err: any) {
-            null;
-          }
-          websocket.emit("pause:due:out:of:visiblity", room);
-        } else {
-          if (notification.current) {
-            notification.current.close();
-          }
-          !pausedRef.current ? videoMediaRef.current!.play() : null;
-          websocket.emit("play:due:of:visiblity", room);
-          console.log("Browser tab is visible");
-        }
+        // if (document.hidden) {
+        //   console.log("Browser tab is hidden");
+        //   chatNotOpenedOrTabUnvisible.current = true;
+        //   try {
+        //     videoMediaRef.current!.pause();
+        //   } catch (err: any) {
+        //     null;
+        //   }
+        //   websocket.emit("pause:due:out:of:visiblity", room);
+        // } else {
+        //   if (notification.current) {
+        //     notification.current.close();
+        //   }
+        //   !pausedRef.current ? videoMediaRef.current!.play() : null;
+        //   websocket.emit("play:due:of:visiblity", room);
+        //   console.log("Browser tab is visible");
+        // }
       });
       websocket.on("you:got:rejected", (room) => {
         if (admiRef.current) {
@@ -1545,6 +1621,20 @@ const Room = () => {
 
     recognition.start();
   };
+  function formatTimeLeft(seconds: number): string {
+  if (seconds < 60) {
+    // If less than 60 seconds, show in seconds
+    return `${Math.floor(seconds)} seconds`;
+  } else {
+    // If 60 seconds or more, convert to minutes and seconds
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    
+    // Format like: 1:01 for minutes:seconds
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")} minutes`;
+  }
+}
+
   const [file, setFile] = useState<{ name: string }>({ name: "" });
   const realFileGodDammit = useRef<File>();
   const [downloadCompleted, setdownloadCompleted] = useState<boolean>(true);
@@ -1590,6 +1680,7 @@ const Room = () => {
       return;
     }
     setAfterDownloadPopUp(false);
+    setNeedAFile(false);
     let ormm = returnPromise();
     if (ormm) {
       websocket.emit("set:stream:ready", room);
@@ -1604,6 +1695,7 @@ const Room = () => {
     websocket.emit("sync:pause", room);
   };
   const syncPlay = () => {
+    if(!pausedRef.current) return;
     console.log("comming here!");
     pausedRef.current = false;
     websocket.emit("sync:play", room);
@@ -1648,18 +1740,22 @@ const Room = () => {
       name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
   }
 
-  const onLeave = () => {
-    alert("you have kicked out!");
+  const onLeave = (optional?: boolean) => {
+    !optional ?  alert("you have kicked out!")  : alert("room deleted by admin!");
     thingsTodelete.forEach((key) => deleteCookie(key));
-    websocket.emit("leave:forcefull", room);
+    localStorage.removeItem("pre-peer");
+    localStorage.removeItem("has-file");
+    websocket.emit("leave:forcefull", {
+      room, socketId: socketBio.id
+    });
     websocket.emit("i:am:done", { room, socketId: socketBio.id });
     websocket.emit("kick:out", room);
 
-    if (admin) {
+    if (adminRef.current) {
       websocket.emit("delete:room", room);
     }
 
-    localStorage.removeItem("pre-peer");
+    
     history("/");
   };
 
@@ -2251,7 +2347,7 @@ const Room = () => {
         //     </>
         //   ) : null} */}
 
-         {!admin && downloadCompleted && <div className="fixed inset-0 z-50 flex items-center justify-center">
+         {!admin && !hasFile && downloadCompleted && !minimizedBar && <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div className="absolute inset-0 bg-black bg-opacity-60"></div>
 
         <div className="relative bg-gray-900 text-white rounded-lg shadow-xl p-6 w-96">
@@ -2259,8 +2355,10 @@ const Room = () => {
             <h2 className="text-xl font-bold text-white">
               Download in Progress
             </h2>
-            <button className="text-gray-400 hover:text-gray-200">
-              <span className="sr-only">Close</span>?
+            <button className="text-gray-400 hover:text-gray-200" onClick={() => {
+              setMiniMizedBar(true);
+            }}>
+              <span className="sr-only">Close</span><i className="fa-solid fa-down-left-and-up-right-to-center" style={{color: "#ffffff"}}></i>
             </button>
           </div>
 
@@ -2275,13 +2373,13 @@ const Room = () => {
 
           <div className="text-gray-400 mb-4">
             <p>
-              File: <span className="text-gray-200">example-file.zip</span>
+              File: <span className="text-gray-200">ADMIN.FILE</span>
             </p>
             <p>
-              Downloaded: <span className="text-gray-200">65 MB of 100 MB</span>
+              Left to Download: <span className="text-gray-200">{downloadProgress.mbLeft}{" "}{downloadProgress.sizeUnit} of {totalFileSize.size}{" "}{totalFileSize.sizeUnit}</span>
             </p>
             <p>
-              Time Left: <span className="text-gray-200">2 minutes</span>
+              Time Left: <span className="text-gray-200">{formatTimeLeft(Number(downloadProgress.timeLeft))}</span>
             </p>
             <p>
               Speed: <span className="text-gray-200"> {downloadProgress.downloadSpeed}{" "}{downloadProgress.speedUnit}</span>
@@ -2298,6 +2396,62 @@ const Room = () => {
           </div>
         </div>
       </div> }
+      {minimizedBar && downloadCompleted && <div className="fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
+      <div className="absolute bottom-4 right-4 bg-gray-900 text-white rounded-lg shadow-xl p-6 w-80" style={{ pointerEvents: 'auto' }}>
+        <h2 className="text-xl font-bold text-white mb-4">
+          Download In Progress
+        </h2>
+        <p className="text-gray-400 mb-6" style={{cursor: "pointer"}} onClick={() => {
+          setMiniMizedBar(false);
+        }}>
+          click here to maximize 🗖
+        </p>
+        <div className="flex justify-center mb-2">
+          {/* Circular Progress Bar */}
+          <svg className="w-20 h-20 mt-10 mr-3" viewBox="0 0 100 100">
+            <circle
+              className="text-gray-700"
+              strokeWidth="8"
+              stroke="currentColor"
+              fill="transparent"
+              r={radius}
+              cx="50"
+              cy="50"
+            />
+            <circle
+              className="text-green-500"
+              strokeWidth="8"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              strokeLinecap="round"
+              stroke="currentColor"
+              fill="transparent"
+              r={radius}
+              cx="50"
+              cy="50"
+              style={{
+                transition: 'stroke-dashoffset 0.35s',
+                transform: 'rotate(-90deg)',
+                transformOrigin: '50% 50%',
+              }}
+            />
+             <text
+              x="50"
+              y="50"
+              dominantBaseline="middle"
+              textAnchor="middle"
+              style={{
+                fill: 'white',
+                fontSize: '16px',
+                fontWeight: 'bold',
+              }}
+            >
+              {`${downloadProgress.progressTransferFile}%`}
+            </text>
+          </svg>
+        </div>
+      </div>
+    </div>}
           {admin && FileSelected && (
             <div className="fixed inset-0 z-50">
               <div className="absolute inset-0 bg-black bg-opacity-60"></div>
@@ -2343,7 +2497,7 @@ const Room = () => {
               </div>
             </div>
           )}
-          {(admin && openUploadModal) || (afterDownloadPopUp && !downloadCompleted) ? (
+          {(hasFile && needAFile) || (admin && openUploadModal) || (afterDownloadPopUp && !downloadCompleted) ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center">
               <div className="absolute inset-0 bg-black bg-opacity-60"></div>
               <div className="relative bg-gray-900 text-white rounded-lg shadow-xl p-6 w-80">
@@ -2377,7 +2531,7 @@ const Room = () => {
           ) : null}
           {admin &&
             requests.length > 0 && 
-              <div className="fixed inset-0 z-50 flex items-end justify-end p-4">
+              <div style={{zIndex: "45"}}  className="fixed inset-0  flex items-end justify-end p-4">
             <div className="absolute inset-0 bg-black opacity-50"></div>
 
             <div className="relative z-10 flex flex-col space-y-4">
@@ -2393,6 +2547,7 @@ const Room = () => {
                 </p>
                 <div className="flex justify-end space-x-4">
                   <button className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md shadow-md" onClick={() => {
+                    if(admin && openUploadModal) return alert("Select A Video File First before adding other peoples to this room!");
                       websocket.emit("reject:socketid", {
                         socketId: !Array.isArray(payload) ? payload.id : "",
                         room,
@@ -2402,6 +2557,7 @@ const Room = () => {
                     Reject
                   </button>
                   <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md" onClick={() => {
+                    if(admin && openUploadModal) return alert("Select A Video File First before adding other peoples to this room!");
                       websocket.emit("sign:accept", {
                         socketId: !Array.isArray(payload) ? payload.id : "",
                         room,
@@ -2556,10 +2712,11 @@ const Room = () => {
                 height={150}
                 style={{ display: "none" }}
               />
-              {isEmojiOpened ? (
+              
                 <div
                   className="emoji-list"
                   style={{
+                    display: isEmojiOpened ? "block" : "none",
                     marginTop: "-3rem",
                     zIndex: "999",
                     backgroundColor: "#2c2c2c",
@@ -2576,7 +2733,6 @@ const Room = () => {
               <li>
                 <button
                   id="0"
-                  ref={emojies[0]}
                   onClick={(event) => {
                     handleEmojiClick(event);
                   }}
@@ -2588,7 +2744,7 @@ const Room = () => {
               <li>
                 <button
                   id="1"
-                  ref={emojies[1]}
+               
                   onClick={(event) => {
                     handleEmojiClick(event);
                   }}
@@ -2600,19 +2756,18 @@ const Room = () => {
               <li>
                 <button
                   id="2"
-                  ref={emojies[2]}
-                  aria-label="Party popper emoji"
+                  aria-label="dead"
                   onClick={(event) => {
                     handleEmojiClick(event);
                   }}
                 >
-                  🎉
+                  💀
                 </button>
               </li>
               <li>
                 <button
                   id="3"
-                  ref={emojies[3]}
+                 
                   aria-label="Clapping hands emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2624,7 +2779,7 @@ const Room = () => {
               <li>
                 <button
                   id="4"
-                  ref={emojies[4]}
+                  
                   aria-label="Laughing emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2636,7 +2791,7 @@ const Room = () => {
               <li>
                 <button
                   id="5"
-                  ref={emojies[5]}
+                
                   aria-label="Surprised face emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2648,7 +2803,7 @@ const Room = () => {
               <li>
                 <button
                   id="6"
-                  ref={emojies[6]}
+                 
                   aria-label="Crying face emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2660,7 +2815,7 @@ const Room = () => {
               <li>
                 <button
                   id="7"
-                  ref={emojies[7]}
+                 
                   aria-label="Thinking face emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2672,7 +2827,7 @@ const Room = () => {
               <li>
                 <button
                   id="8"
-                  ref={emojies[8]}
+                 
                   aria-label="Thumbs down emoji"
                   onClick={(event) => {
                     handleEmojiClick(event);
@@ -2683,7 +2838,7 @@ const Room = () => {
               </li>
             </ul>
                 </div>
-              ) : null}
+              
               <div
                 style={{
                   width: "80%",
@@ -2901,7 +3056,7 @@ const Room = () => {
                             </div>
                             <div className="justify-end items-center inline-flex mb-1">
                               <h6 className="text-gray-500 text-xs font-normal leading-4 py-1">
-                                {hisHerMessages.message}
+                                {hisHerMessages.time}
                               </h6>
                             </div>
                           </div>
@@ -2909,13 +3064,14 @@ const Room = () => {
                       </div>
                     </div>
                     }) : null}
+                    <div ref={pushToEnd} style={{display: "block", backgroundColor: "white", paddingTop: "3rem", color: "white"}}></div>
                   </div>
                 </div>
                 <div className="p-2 text-sm text-gray-500">
                   {typing.map((per, index) => {
-              return <span key={index}>{per.name},</span>;
+              return <span key={index}>{per.name}{index === typing.length - 1 ? "" : ","}</span>;
             })}
-              are typing...
+              {typing.length > 1 ? "are" : "is"} typing...
     </div>
                 <i onClick={sendMessage} className="fa-regular fa-paper-plane absolute bottom-10 right-6 z-10 text-xl"></i>
                 <textarea

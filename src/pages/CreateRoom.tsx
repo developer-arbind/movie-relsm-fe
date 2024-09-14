@@ -166,7 +166,7 @@ const CreateRoom = () => {
       console.log("socket-state1: ", socketState, socketBio.id);
       (async () => {
         try {
-          const data = await setName$(yourName, socketBio.id);
+          const data = await setName$(yourName, socketBio.id, "");
           if (data.error) {
             return setBlocked(true);
           }

@@ -15,7 +15,8 @@ interface NamePopUpProps {
   dontconnectback: boolean;
   startDuplexCommunication: (
     yourName: string,
-    socketiD: string
+    socketiD: string,
+    room: string
   ) => Promise<
     | {
         data: any;
@@ -52,7 +53,7 @@ const NamePopUp: React.FC<NamePopUpProps> = ({
       (buttonClicked && socketIdProviderWrapper.id && yourName)
     ) {
       (async () => {
-        await startDuplexCommunication(yourName, socketIdProviderWrapper.id);
+        await startDuplexCommunication(yourName, socketIdProviderWrapper.id, room ? room : "");
         setHideOnclick(true);
         if (buttonClicked && socketIdProviderWrapper.id && yourName) {
           room ? window.open(`/${room}`, "_self") : null;
@@ -109,7 +110,8 @@ const NamePopUp: React.FC<NamePopUpProps> = ({
                     if (dontconnectback) {
                       await startDuplexCommunication(
                         yourName,
-                        socketIdProviderWrapper.id
+                        socketIdProviderWrapper.id,
+                        room ? room : ""
                       );
                       return room ? window.open(`/${room}`, "_self") : null;
                     }

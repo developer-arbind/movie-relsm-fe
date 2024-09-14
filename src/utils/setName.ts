@@ -7,7 +7,8 @@ const process = {
 const startDuplexCommunication = () => {
   const setName$ = async (
     yourName: string,
-    socketiD: string
+    socketiD: string,
+    room: string
   ): Promise<
     | {
         data: any;
@@ -42,7 +43,7 @@ const startDuplexCommunication = () => {
       }
       console.log("the name i am getting wtf: ", yourName, socketiD);
       const response = await fetch(
-        process.env.SERVER_PORT + "/name/" + yourName,
+        process.env.SERVER_PORT + "/name/" + yourName + "/" + room,
         customOpt
       );
 

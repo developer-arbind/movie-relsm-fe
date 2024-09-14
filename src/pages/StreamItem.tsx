@@ -17,7 +17,7 @@ const StreamItem = memo(
       <div className="frames relative" key={webrtc.socketId}>
         {admin && (
           <BsThreeDotsVertical
-            style={{ cursor: "pointer", zIndex: 99 }}
+            style={{ cursor: "pointer", zIndex: 3 }}
             onClick={() => {
               setStreams((prev: any) =>
                 prev.map((itm: any) => {
@@ -64,6 +64,7 @@ const StreamItem = memo(
           <video
             ref={webrtc.ref}
             autoPlay
+            muted={webrtc.socketId === socketBio.id ? true : false}
             style={{
               width: "100%",
               borderRadius: "1rem",
