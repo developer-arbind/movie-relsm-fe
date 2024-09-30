@@ -65,9 +65,10 @@ const CreateRoom = () => {
       [from]: input,
     });
   };
-
+  const [creating, setCreating] = useState<boolean>(false);
   const createRoom = async (event: any) => {
     event.preventDefault();
+    setCreating(true);
     console.log("creating room$: ");
     let customIp = returnCustomIp();
     interface CUSTOMIP {
@@ -139,6 +140,7 @@ const CreateRoom = () => {
     const data = await response.data;
     console.log(data);
     if (data.code === 200) {
+      setCreating(false);
       history("/" + room);
     }
   };
@@ -166,7 +168,7 @@ const CreateRoom = () => {
       console.log("socket-state1: ", socketState, socketBio.id);
       (async () => {
         try {
-          const data = await setName$(yourName, socketBio.id, "");
+          const data = await setName$(yourName, socketBio.id);
           if (data.error) {
             return setBlocked(true);
           }
@@ -189,17 +191,17 @@ const CreateRoom = () => {
       />
       {!blocked ? (
         <>
-          <div className="demo-container">
+          {creating && <div className="demo-container">
             <div className="progress-bar">
               <div className="progress-bar-value"></div>
             </div>
-          </div>
+          </div> }
           <section className="min-h-screen flex items-stretch text-white ">
             <div
               className="lg:flex w-1/2 hidden bg-gray-500 bg-no-repeat bg-cover relative items-center"
               style={{
                 backgroundImage:
-                  "url(https://images.unsplash.com/photo-1577495508048-b635879837f1?ixid=MXwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHw%3D&ixlib=rb-1.2.1&auto=format&fit=crop&w=675&q=80)",
+                  "url(https://i.imgur.com/GvDNp0i.png)",
               }}
             >
               <div className="absolute bg-black opacity-60 inset-0 z-0"></div>
@@ -255,7 +257,7 @@ const CreateRoom = () => {
                 className="absolute lg:hidden z-10 inset-0 bg-gray-500 bg-no-repeat bg-cover items-center"
                 style={{
                   backgroundImage:
-                    "url(https://images.unsplash.com/photo-1577495508048-b635879837f1?ixid=MXwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHw%3D&ixlib=rb-1.2.1&auto=format&fit=crop&w=675&q=80)",
+                    "url(https://i.imgur.com/X3TOadT.png)",
                 }}
               >
                 <div className="absolute bg-black opacity-60 inset-0 z-0"></div>
@@ -263,13 +265,13 @@ const CreateRoom = () => {
               <div className="w-full py-6 z-20">
                 <div className="py-6 space-x-2">
                   <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                    f
+                    ⚔️
                   </span>
                   <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                    G+
+                    ⚔️
                   </span>
                   <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                    in
+                    ⚔️
                   </span>{" "}
                 </div>
                 <p className="text-gray-100">remember the passcode!</p>
@@ -308,6 +310,7 @@ const CreateRoom = () => {
                     <button
                       onClick={createRoom}
                       className="uppercase block w-full p-4 text-lg rounded-full bg-indigo-500 hover:bg-indigo-600 focus:outline-none"
+                      disabled={creating}
                     >
                       Create Room!
                     </button>

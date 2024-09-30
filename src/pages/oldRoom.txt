@@ -32,7 +32,6 @@ interface Stream {
   mute: boolean;
   webcam: boolean;
   name: string;
-  speaking: boolean;
 }
 
 interface Speaking {
@@ -59,9 +58,9 @@ const Room = () => {
   const [isMute, setIsMute] = useState(false);
   const [isVisible, setIsVisible] = useState(false); // Single state for visibility
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const idsRef = useRef<any>();
   const [showOptions, setShowOptions] = useState(true);
-  const mainStream = useRef<any>(); // Ref to store the media stream
+  const [openMenu, setOpenMenu] = useState(false); // Single state for menu
+  const streamRef = useRef(null); // Ref to store the media stream
   const canvasRef = useRef(null);
   const pushToEnd  = useRef<HTMLDivElement | null>(null);
   const [isArrowUped, setIsArrowUped] = useState(false);
@@ -69,9 +68,9 @@ const Room = () => {
   const [minimizedBar, setMiniMizedBar] = useState<boolean>(false);
 
   function getDeviceType() {
-    const userAgent = navigator.userAgent || navigator.vendor || !(window as any).opera;
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
     const isMobileDevice =
-      /android/i.test(userAgent as string) || /iPad|iPhone|iPod/.test(userAgent as string);
+      /android/i.test(userAgent) || /iPad|iPhone|iPod/.test(userAgent);
 
     if (isMobileDevice) {
       return "mobile";
@@ -98,10 +97,21 @@ const Room = () => {
     setIsMute((prev) => !prev);
   };
 
+  const handleVisibility = () => {
+    setIsVisible((prev) => !prev);
+  };
 
   const handleChat = () => {
     setIsChatOpen((prev) => !prev);
     pushToEnd.current!.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleOptions = () => {
+    setShowOptions((prev) => !prev);
+  };
+
+  const handleThreeDots = () => {
+    setOpenMenu((prev) => !prev);
   };
 
   useEffect(() => {
@@ -140,8 +150,18 @@ const Room = () => {
     }
   }
 
+  const handleFileChange = (event: any) => {
+    setFile(event.target.files[0]);
+  };
+
+  const handleUpload = () => {
+    if (file) {
+      // Handle the file upload process
+      console.log("File to upload:", file);
+      // You can add your file upload logic here
+    }
+  };
   const [passcode, setpasscode] = useState<string>("");
-  const connecting = useRef<boolean>(false);
   const history = useNavigate();
   const socketState = useContext(SocketContext);
   const [promise, setPromise] = useState<boolean>(false);
@@ -156,18 +176,15 @@ const Room = () => {
 
   useEffect (() => {
     adminRef.current = admin;
-  }, [admin]);
-  const idx = useRef<number>(0);
+  }, [admin])
   const localStream = useRef<MediaStream | null>(null);
   const videoMediaRef: React.RefObject<HTMLVideoElement> = useRef(null);
   const previousTimeline = useRef<number>(0);
   const [playing, setPlaying] = useState<boolean>(false);
   const videoFile: React.RefObject<HTMLInputElement> = useRef(null);
-  const Pcs = useRef<Array<{
-  id: string,
-  pc: Peer
-  }>>([]);
+  const PeerConnections = useRef<Array<{ pc: Peer; socketId: string }>>([]);
   const nameAdded = useRef<boolean>(false);
+  const peerIndex = useRef<number>(0);
   const [typing, setTyping] = useState<
     Array<{
       name: string;
@@ -193,6 +210,13 @@ const Room = () => {
     apneChatsRef.current = chats;
   }, [chats] )
   const [message, setMessage] = useState<string>("");
+  useEffect(() => {
+    // if (!localStorage.getItem("pre-peer")) {
+      PeerConnections.current.push({ pc: new Peer(), socketId: socketBio.id });
+      // localStorage.setItem("pre-peer", "true");
+    // }
+  }, []);
+
   const currentPeeringSocket = useRef<string>("");
   const admiRef = useRef(admin);
   useEffect(() => {
@@ -216,13 +240,12 @@ const Room = () => {
   let [media, setMedia] = useState<string>("");
   const room = id;
   const [token, setToken] = useState<string>("");
-  const streamSenderId = useRef<string>("");
-  const nextPersonSenderId = useRef<string>("");
-  const nextPersonId = useRef<string>("");
   const [yourName, setYourName] = useState<string>(
     localStorage.getItem("your-name") as string
   );
   const ddn = useRef<boolean>(false);
+  const roomSockets = useRef<string[]>([]);
+
   const container: React.RefObject<HTMLDivElement> = useRef(null);
   const chatNotOpenedOrTabUnvisible = useRef<boolean>(false);
 
@@ -230,6 +253,7 @@ const Room = () => {
   let blockViceVersa = useRef<boolean>(true);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [speakers, setSpeakers] = useState<Speaking[]>([]);
+  const iamTryingToConnect = useRef<boolean>(false);
   const [totalFileSize, setTotalSize] = useState({
     sizeUnit: "",
     size: 0
@@ -242,17 +266,18 @@ const Room = () => {
     sizeUnit: "",
     timeLeft: ""
   });
+  const socketIds = useRef<Array<IP>>();
+  const socketIndex = useRef<number>(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const blob = useRef<Blob | null>(null);
-  const streamRefs = useRef<Stream[]>([]);
   const createStream = async (socketId: string) => {
     const audioCtx = new AudioContext();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: true,
     });
-    mainStream.current = stream;
+
     console.log("streamm passing!");
     if (!stream) {
       return alert("Please allow the jarui permissions");
@@ -292,47 +317,103 @@ const Room = () => {
       if (!isSpeaking && speechActive) {
         console.log("Speech started");
         isSpeaking = true;
-        
-        const streamToUpdate = streamRefs.current.find((strm) => strm.socketId === socketBio.id);
-          console.log(streamToUpdate);
-          if(!streamToUpdate?.webcam) return;
-        setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === socketBio.id) {
-            
-            return {
-              ...strm,
-              speaking: true
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: true,
+              };
             }
-          }
-          return strm;
-        }));
+            return strm;
+          })
+        );
         // Fire your "speech started" event here
       } else if (isSpeaking && !speechActive) {
         console.log("Speech stopped");
         isSpeaking = false;
-       
-          const streamToUpdate = streamRefs.current.find((strm) => strm.socketId === socketBio.id);
-          console.log(streamToUpdate);
-          if(!streamToUpdate?.webcam) return;
-        setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === socketBio.id) {
-            return {
-              ...strm,
-              speaking: false
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: false,
+              };
             }
-          }
-          return strm;
-        }))
+            return strm;
+          })
+        );
         // Fire your "speech stopped" event here
       }
     };
     const shallowRefference = { ...videoRef };
+    // const audioContext = new (window.AudioContext ||
+    //   window.webkitAudioContext)();
+    // const source = audioContext.createMediaStreamSource(stream);
+    // const analyser = audioContext.createAnalyser();
+    // analyser.fftSize = 256;
+    // const bufferLength = analyser.frequencyBinCount;
+    // const dataArray = new Uint8Array(bufferLength);
 
-    setVideoMute(true);
-     const myTracks = stream.getTracks();
-    const myVideo = myTracks.filter(track => track.kind === "video")[0];
-    myVideo.enabled = false;
-    websocket.emit("set:my:track:option", {room, socketId: socketBio.id, video: true, block: true});
+    // source.connect(analyser);
+
+    // let speaking = false;
+    // const silenceThreshold = 30;
+    // const silenceTimeout = 500;
+
+    // let silenceTimer: ReturnType<typeof setTimeout>;
+
+    // const checkAudio = () => {
+    //   analyser.getByteFrequencyData(dataArray);
+
+    //   const sum = dataArray.reduce(
+    //     (acceleration, velocity) => acceleration + velocity,
+    //     0
+    //   );
+    //   const average = sum / bufferLength;
+
+    //   if (average > silenceThreshold) {
+    //     if (!speaking) {
+    //       speaking = true;
+    //       console.log("User started speaking");
+    //       setSpeakers((prev) =>
+    //         prev.map((strm) => {
+    //           if (strm.socketId === socketBio.id) {
+    //             return {
+    //               ...strm,
+    //               speaking: true,
+    //             };
+    //           }
+    //           return strm;
+    //         })
+    //       );
+    //     }
+    //     clearTimeout(silenceTimer);
+    //   } else {
+    //     if (speaking) {
+    //       clearTimeout(silenceTimer);
+    //       silenceTimer = setTimeout(() => {
+    //         speaking = false;
+    //         console.log("User stopped speaking");
+    //         setSpeakers((prev) =>
+    //           prev.map((strm) => {
+    //             if (strm.socketId === socketBio.id) {
+    //               return {
+    //                 ...strm,
+    //                 speaking: false,
+    //               };
+    //             }
+    //             return strm;
+    //           })
+    //         );
+    //       }, silenceTimeout);
+    //     }
+    //   }
+
+    //   requestAnimationFrame(checkAudio);
+    // };
+
+    // checkAudio();
     setStreams((prev) => [
       ...prev,
       {
@@ -340,10 +421,9 @@ const Room = () => {
         stream,
         ref: shallowRefference,
         mute: false,
-        webcam: true,
+        webcam: false,
         name: yourName,
         threedOT: false,
-        speaking: false
       },
     ]);
     setSpeakers((prev) => [
@@ -363,7 +443,6 @@ const Room = () => {
         lastStream.ref.current.srcObject = lastStream.stream;
         lastStream.ref.current.play();
       }
-      streamRefs.current = streams;
     }
     
   }, [streams]);
@@ -522,7 +601,6 @@ const currentTime = `${hours}:${minutes}`
   } 
     pushToEnd.current!.scrollIntoView({ behavior: "smooth" });
     websocket.emit("send:message", { room, message, uuid: code});
-    setMessage("");
   };
 
   const getCompleteFile = (
@@ -561,6 +639,42 @@ const currentTime = `${hours}:${minutes}`
     URL.revokeObjectURL(url);
   };
 
+  const SessionDescriptionProtocol = async (
+    ids: Array<IP>,
+    forcefulConnected?: boolean
+  ) => {
+    console.log("why camming here bro?");
+    let bidirectional = false;
+    if (
+      roomSockets.current.includes(ids[socketIndex.current].socketId) ||
+      ids[socketIndex.current].socketId === socketBio.id
+    ) {
+      bidirectional = true;
+      if (socketIndex.current === ids.length - 1) {
+        return false;
+      }
+    }
+    console.log("is aDMin Able to connected: ", socketIndex.current);
+    if (!bidirectional) {
+      const offer = await createLocalOffer(
+        ids[socketIndex.current].socketId,
+        forcefulConnected,
+        ids[socketIndex.current].isOc
+      );
+      currentPeeringSocket.current = ids[socketIndex.current].socketId;
+      websocket.emit("send-offer", {
+        socketId: ids[socketIndex.current].socketId,
+        offer,
+        mySocketId: socketBio.id,
+      });
+      roomSockets.current.push(ids[socketIndex.current].socketId);
+      socketIndex.current = socketIndex.current + 1;
+    } else {
+      console.log("when user tries to callback the function again!");
+      socketIndex.current++;
+      SessionDescriptionProtocol(ids);
+    }
+  };
 
   useEffect(() => {
     if (socketState.socket && socketBio.id) {
@@ -577,64 +691,100 @@ const currentTime = `${hours}:${minutes}`
     }
   }, [socketBio, socketState, nameAdded.current]);
 
+  const createLocalOffer = async (
+    socketId: string,
+    forcefulConnected?: boolean,
+    isAdmin?: boolean
+  ) => {
+    if (
+      PeerConnections.current[peerIndex.current].pc.peer?.connectionState ===
+        "connected" ||
+      forcefulConnected
+    ) {
+      console.log("slow motion: $times");
+      PeerConnections.current.push({ pc: new Peer(), socketId });
+      peerIndex.current++;
+    }
+    PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+      "track",
+      getRemoteTracks
+    );
+    PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+      "datachannel",
+      onDataChannelCallback
+    );
+    PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+      "negotiationneeded",
+      makeNegotiation
+    );
+    PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+      "iceconnectionstatechange",
+      async (event) => {
+        const pc = PeerConnections.current[peerIndex.current].pc.peer;
+        if (pc?.iceConnectionState === "connected" && event) {
+          iamTryingToConnect.current
+            ? SessionDescriptionProtocol(socketIds.current as IP[], true)
+            : null;
+          if (isAdmin) {
+            console.log("found admin, now requesting to send the data chunks");
+            websocket.emit("negotiate:transfer:file", socketId);
+          }
+        }
+      }
+    );
+    const offer = await PeerConnections.current[
+      peerIndex.current
+    ].pc.getOffer();
+    return offer;
+  };
    const radius = 40; // Radius of the circle
   const circumference = 2 * Math.PI * radius; // Circumference of the circle
 
   // Calculate stroke-dashoffset based on the percentage
   const offset = circumference - (downloadProgress.progressTransferFile / 100) * circumference;
- const setTracks = useCallback(() => {
-  console.log("sending-tracks: ");
+  const setTracks = () => {
     const senders =
-      Pcs.current[Pcs.current.length - 1].pc.peer?.getSenders();
-    for (let track of mainStream.current!.getTracks()) {
+      PeerConnections.current[peerIndex.current].pc.peer?.getSenders();
+    if (!localStream.current) return console.log("no track found!");
+    for (let track of localStream.current?.getTracks()) {
       let sender;
+      if (!senders) return console.log("no sender found!");
       try {
-        sender = senders!.find((s: any) => s.track.kind === track.kind);
-      } catch (err) {}
+        sender = senders.find((s) => s.track && s.track.kind === track.kind);
+      } catch (err) {
+        console.log("error: sender: ", sender);
+      }
       if (sender) {
-        console.log("replacing tracks; ",Pcs.current[Pcs.current.length - 1]); 
         sender.replaceTrack(track);
       } else {
-        console.log("++" + Math.random()*1)
-        console.log("adding tracks: ", Pcs.current[Pcs.current.length - 1]);
-        Pcs.current[Pcs.current.length - 1].pc.peer?.addTrack(
+        PeerConnections.current[peerIndex.current].pc.peer?.addTrack(
           track,
-          mainStream.current
+          localStream.current
         );
       }
     }
-}, [mainStream.current]);
-  const removeTracks = useCallback((socketId: any) => {
-  const peerIndex = Pcs.current.findIndex((pcObj: any) => pcObj.id === socketId);
-  if (peerIndex !== -1) {
-    const senders = Pcs.current[peerIndex].pc.peer?.getSenders();
-    senders!.forEach((sender: any) => {
-      Pcs.current[peerIndex].pc.peer?.removeTrack(sender);
-    });
-    Pcs.current = Pcs.current.filter((pcObj: any) => pcObj.id !== socketId);
-  }
-}, []);
+  };
 
-const makePeerConnections = async  (ids: Array<IP>) => {
-  nextPersonSenderId.current = "";
-   Pcs.current.push({id: ids[idx.current].socketId, pc: new Peer()});
-  nextPersonId.current = ids[idx.current].socketId;
-    await createLocalOffer(ids[idx.current].socketId);
-}
-const createLocalOffer = async (id: string) => {
-  const offer = await Pcs.current[Pcs.current.length - 1].pc.getOffer();
-  websocket.emit("send-offer", {
-    offer, socketId: id, mySocketId: socketBio.id
-  });
-};
+  // const getRemoteTracks = async (event: any) => {
+  //   const nextUserStreamRefference = event.streams[0];
+  //   const track = event.track;
+  //   if (track.kind === "audio") return;
+  //   const shallowRefference = { ...videoRef };
+  //   setStreams((prev) => [
+  //     ...prev,
+  //     {
+  //       socketId: currentPeeringSocket.current,
+  //       stream: nextUserStreamRefference,
+  //       ref: shallowRefference,
+  //     },
+  //   ]);
+  // };
   const [hasFile, setHasFile] = useState<boolean>(localStorage.getItem("has-file") === "$" ? true : false);
   const [needAFile, setNeedAFile] = useState<boolean>(hasFile);
   const getRemoteTracks = async (event: any) => {
     const nextUserStreamReference = event.streams[0];
     const track = event.track;
-    const heap = streamSenderId.current;
-
-    console.log("LET'S SEE THE STREAM SENDER ID: ", heap);
+    const heap = currentPeeringSocket.current;
     if (track.kind === "audio") {
       const audioCtx = new AudioContext();
       const micSource = audioCtx.createMediaStreamSource(
@@ -667,36 +817,32 @@ const createLocalOffer = async (id: string) => {
         if (!isSpeaking && speechActive) {
           console.log("Speech started");
           isSpeaking = true;
-          
-         const streamToUpdate = streamRefs.current.find((strm) => strm.socketId === heap);
-          console.log(streamToUpdate);
-          if(!streamToUpdate?.webcam) return;
-          setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === heap) {
-            return {
-              ...strm,
-              speaking: true
-            }
-          }
-          return strm;
-        }))
+          setSpeakers((prev) =>
+            prev.map((strm) => {
+              if (strm.socketId === heap) {
+                return {
+                  ...strm,
+                  speaking: true,
+                };
+              }
+              return strm;
+            })
+          );
           // Fire your "speech started" event here
         } else if (isSpeaking && !speechActive) {
           console.log("Speech stopped");
           isSpeaking = false;
-        
-           const streamToUpdate = streamRefs.current.find((strm) => strm.socketId === heap);
-          console.log(streamToUpdate);
-          if(!streamToUpdate?.webcam) return;
-          setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === heap) {
-            return {
-              ...strm,
-              speaking: false
-            }
-          }
-          return strm;
-        }))
+          setSpeakers((prev) =>
+            prev.map((strm) => {
+              if (strm.socketId === heap) {
+                return {
+                  ...strm,
+                  speaking: false,
+                };
+              }
+              return strm;
+            })
+          );
           // Fire your "speech stopped" event here
         }
       };
@@ -714,7 +860,7 @@ const createLocalOffer = async (id: string) => {
     )
       return;
     if (
-      streams.filter((ax) => ax.socketId === heap)
+      streams.filter((ax) => ax.socketId === currentPeeringSocket.current)
         .length > 0
     )
       return;
@@ -726,46 +872,56 @@ const createLocalOffer = async (id: string) => {
       );
     });
     const shallowReference = { ...videoRef };
-    websocket.emit("get:remotes:track:options", {room, socketId: heap});
-      setStreams((prev) => [
-              ...prev,
-              {
-                socketId: heap,
-                stream: nextUserStreamReference,
-                ref: shallowReference,
-                webcam: true,
-                mute: false,
-                name: "loading...",
-                threedOT: false,
-                speaking: false
-              },
-            ]);
-     websocket.on("get:specific:user:track", (trace) => {
-        console.log("checking: ", heap, trace);
-        setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === heap) {
-            return {
-              ...strm,
-             webcam: !trace.mute,
-                mute: trace.webcam,
-                name: trace.name,
-            }
+    let isMute = nextUserStreamReference.getAudioTracks()[0].enabled;
+    let isVideoMute = nextUserStreamReference.getVideoTracks()[0].enabled;
+    // console.log("what we getting let's see: ", isMute, isVideoMute);
+    setStreams((prev) => [
+      ...prev,
+      {
+        socketId: currentPeeringSocket.current,
+        stream: nextUserStreamReference,
+        ref: shallowReference,
+        webcam: isMute ? false : true,
+        mute: isVideoMute ? false : true,
+        name: "loading...",
+        threedOT: false,
+      },
+    ]);
+    setSpeakers((prev) => [
+      ...prev,
+      {
+        speaking: false,
+        socketId: currentPeeringSocket.current,
+      },
+    ]);
+    websocket.emit("get:name", {
+      room,
+      socketId: currentPeeringSocket.current,
+    });
+
+    websocket.on("set:name", (name) => {
+      console.log("name I am getting!: ", name);
+      setStreams((prev) =>
+        prev.map((itm) => {
+          if (itm.socketId === currentPeeringSocket.current) {
+            return { ...itm, name };
           }
-          return strm;
-        }));
-      
+          return itm;
+        })
+      );
     });
   };
 
-  const makeNegotiation = useCallback(async () => {
-    console.log("negotiation needed: ", !nextPersonSenderId.current ? nextPersonId.current : nextPersonSenderId.current);
-    const offer = await Pcs.current[Pcs.current.length - 1].pc.getOffer();
+  const makeNegotiation = async () => {
+    const offer = await PeerConnections.current[
+      peerIndex.current
+    ].pc.getOffer();
     websocket.emit("send:negotiation", {
-      socketId: !nextPersonSenderId.current ? nextPersonId.current : nextPersonSenderId.current,
+      socketId: currentPeeringSocket.current,
       offer,
-    mySocketId: socketBio.id
+      mySocketId: socketBio.id,
     });
-  }, []);
+  };
   useEffect(() => {
     if (streams.length > 0) return;
     if (promise) {
@@ -785,13 +941,10 @@ const createLocalOffer = async (id: string) => {
         websocket.emit("set:room:name", room);
       });
       websocket.on("get:ids", async (ids: Array<IP>) => {
-        
-        idsRef.current = ids;
-          if(ids.length > 1 ) {
-        console.log ("nepali songs")
-        connecting.current = true;
-        makePeerConnections(ids);
-      } 
+        console.log("as admin reconnetion: ", ids);
+        socketIds.current = ids;
+        iamTryingToConnect.current = true;
+        await SessionDescriptionProtocol(ids);
       });
       websocket.on("on:someone:pause", (socketId) => {
         console.log("from user: ", socketId);
@@ -809,29 +962,31 @@ const createLocalOffer = async (id: string) => {
       websocket.on("on:someone:speaking", (socketId) => {
         console.log("the user speaking: ", socketId);
 
-      
-        setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === socketId) {
-            return {
-              ...strm,
-              speaking: true
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketId) {
+              return {
+                ...strm,
+                speaking: true,
+              };
             }
-          }
-          return strm;
-        }))
+            return strm;
+          })
+        );
       });
       websocket.on("on:someone:stopped:speaking", (socketId) => {
         console.log("on user stops typing");
-        
-        setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === socketId) {
-            return {
-              ...strm,
-              speaking: false
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketId) {
+              return {
+                ...strm,
+                speaking: false,
+              };
             }
-          }
-          return strm;
-        }))
+            return strm;
+          })
+        );
       });
       websocket.on("on:someone:resume:controller", (socketId) => {
         console.log("from user$: ", socketId);
@@ -993,16 +1148,18 @@ const currentTime = `${hours}:${minutes}`
           offer: RTCSessionDescriptionInit;
           socketId: string;
         }) => {
-         
-          console.log("recived negotiation offer: ", offer, socketId);
-          const anwser = await Pcs.current[Pcs.current.length - 1].pc.connectRemoteOffer(offer);
-            websocket.emit("negotiation:complete", {answer: anwser, socketId});
+          const answer = await PeerConnections.current[
+            peerIndex.current
+          ].pc.connectRemoteOffer(offer);
+          websocket.emit("negotiation:complete", {
+            socketId,
+            answer,
+          });
         }
       );
 
       websocket.on("on:user:disconnects", (socketId: string) => {
         console.log("the user wants to leave, just let him gooo!!!");
-        removeTracks(socketId);
         setStreams((prev) =>
           prev.filter((stream) => stream.socketId !== socketId)
         );
@@ -1064,30 +1221,23 @@ const currentTime = `${hours}:${minutes}`
 
       websocket.on(
         "get:negotiation:answer",
-        async ({ answer, socketId }: { answer: RTCSessionDescriptionInit, socketId: string }) => {
-        
-                  console.log("recived nego anwser:  ", socketId, answer);
-       await  Pcs.current[Pcs.current.length - 1].pc.setRemoteDescription(answer);
-      websocket.emit("send-track-vice-versa", socketId);
-      setTracks();
+        async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+          await PeerConnections.current[
+            peerIndex.current
+          ].pc.setRemoteDescription(answer);
+          websocket.emit(
+            "get:receiver:local:track",
+            currentPeeringSocket.current
+          );
+          // iamTryingToConnect.current
+          //   ? await SessionDescriptionProtocol(socketIds.current as IP[])
+          //   : false;
         }
       );
-       websocket.on("send-track", (socketId: string) => {
-      console.log("I may need to send tracks??🙄: ", socketId);
-      nextPersonSenderId.current = socketId;
-      console.log("socketidddddddd: ", socketBio.id);
-      setTracks();
-      if (idx.current + 1 !== idsRef.current.length && connecting.current) {
-        console.log("FINALLY ERRORRRRROROROROROROROR S0LVED::::!!!!")
-        idx.current++;
-        if(idsRef.current[idx.current].socketId === socketBio.id) return connecting.current = false;
-        console.log("i got you bro: ", idsRef.current[idx.current], socketBio.id);
-        makePeerConnections(idsRef.current); 
-      }else {
-        connecting.current = false;
-      }
-    })
 
+      websocket.on("track:ready", () => {
+        setTracks();
+      });
       websocket.on(
         "send:request",
         ({ name, id }: { name: string; id: string }) => {
@@ -1113,61 +1263,60 @@ const currentTime = `${hours}:${minutes}`
           offer: RTCSessionDescriptionInit;
           whomSocketId: string;
         }) => {
-           Pcs.current.push({id: whomSocketId, pc: new Peer()});
-      streamSenderId.current = whomSocketId;
-      const anwser = await Pcs.current[Pcs.current.length - 1].pc.connectRemoteOffer(offer);
-      console.log("recived remote offer: ", offer)
-      websocket.emit("send-anwser", {anwser, whomSocketId});
-      Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener("track", getRemoteTracks);
-       Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener("negotiationneeded", makeNegotiation);
-      websocket.on("start:transmission", (socketId) => {
+          console.log("remote: offer:", offer, whomSocketId);
+          if (
+            PeerConnections.current[peerIndex.current].pc.peer
+              ?.connectionState === "connected" ||
+            PeerConnections.current[peerIndex.current].pc.peer
+              ?.connectionState === "failed"
+          ) {
+            console.log("should something happening here: ");
+            PeerConnections.current.push({
+              pc: new Peer(),
+              socketId: whomSocketId,
+            });
+            peerIndex.current++;
+          }
+          PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+            "track",
+            getRemoteTracks
+          );
+          websocket.on("start:transmission", (socketId) => {
             console.log(
               "user: " +
                 socketId +
                 " requesting to get the file and btw the blob is: ",
               blob.current
             );
-            Pcs.current[Pcs.current.length - 1].pc.createDataChannel();
-            Pcs.current[Pcs.current.length - 1].pc.transferFile(
+            PeerConnections.current[peerIndex.current].pc.createDataChannel();
+            PeerConnections.current[peerIndex.current].pc.transferFile(
               blob.current
             );
           });
+          PeerConnections.current[peerIndex.current].pc.peer?.addEventListener(
+            "negotiationneeded",
+            makeNegotiation
+          );
+          console.log("excutive m-lines: ", PeerConnections.current);
+          const answer = await PeerConnections.current[
+            peerIndex.current
+          ].pc.connectRemoteOffer(offer);
+          currentPeeringSocket.current = whomSocketId;
           websocket.emit("send:remote:offer", {
             socketId: whomSocketId,
-            answer: anwser,
+            answer,
           });
         }
       );
 
       websocket.on(
         "get:remote:answer",
-        async ({ answer, socketId }: { answer: RTCSessionDescriptionInit, socketId: string }) => {
-              let isAdmin = false;
-      for(let i = 0; i < idsRef.current.length; i++) {
-        if(idsRef.current[i].socketId === socketId && idsRef.current[i].isOc) {
-          isAdmin = true;
-        }
-      }
-            console.log("recived answer:  ", socketId, answer);
-        streamSenderId.current = socketId;
-       await  Pcs.current[Pcs.current.length - 1].pc.setRemoteDescription(answer);
-      Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener("track", getRemoteTracks);
-        Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener("negotiationneeded", makeNegotiation);
-          Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener(
-      "datachannel",
-      onDataChannelCallback
-    );
-     Pcs.current[Pcs.current.length - 1].pc.peer?.addEventListener("iceconnectionstatechange", 
-        async (event) => {
-        const pc = Pcs.current[Pcs.current.length - 1].pc.peer;
-        if (pc?.iceConnectionState === "connected" && event) {
-          if (isAdmin) {
-            console.log("found admin, now requesting to send the data chunks");
-            websocket.emit("negotiate:transfer:file",socketId);
-          }
-        }
-      })
-      setTracks();
+        async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+          console.log("remote answer : ", answer);
+          await PeerConnections.current[
+            peerIndex.current
+          ].pc.setRemoteDescription(answer);
+          setTracks();
         }
       );
 
@@ -1203,11 +1352,29 @@ const currentTime = `${hours}:${minutes}`
         localStorage.removeItem("pre-peer");
       });
 
+      document.addEventListener("visibilitychange", function () {
+        // if (document.hidden) {
+        //   console.log("Browser tab is hidden");
+        //   chatNotOpenedOrTabUnvisible.current = true;
+        //   try {
+        //     videoMediaRef.current!.pause();
+        //   } catch (err: any) {
+        //     null;
+        //   }
+        //   websocket.emit("pause:due:out:of:visiblity", room);
+        // } else {
+        //   if (notification.current) {
+        //     notification.current.close();
+        //   }
+        //   !pausedRef.current ? videoMediaRef.current!.play() : null;
+        //   websocket.emit("play:due:of:visiblity", room);
+        //   console.log("Browser tab is visible");
+        // }
+      });
       websocket.on("you:got:rejected", (room) => {
         if (admiRef.current) {
           return;
         }
-        setJoining(false);
         alert("you got rejected from: " + room);
       });
       (async () => {
@@ -1296,7 +1463,7 @@ const currentTime = `${hours}:${minutes}`
     }
     // websocket.off("booked:token", handleTicketCookie);
   }, [promise, streams]);
-  const [joining, setJoining] = useState<boolean>(false);
+
   const cookieMannager = async (jsecret?: string) => {
     let customIp = returnCustomIp();
     const header: Abstract = {
@@ -1325,19 +1492,13 @@ const currentTime = `${hours}:${minutes}`
     );
     if (!response.ok) {
       const payload = await response.json();
-      setJoining(false);
       return alert(payload.error);
     }
   };
   const onEnter = async (event: any) => {
     event.preventDefault();
     console.log("requesting for the room");
-    setJoining(true);
-    if (!passcode) 
-      {
-        setJoining(false);
-        return alert("enter the passcode");
-      }
+    if (!passcode) return alert("enter the passcode");
     await cookieMannager();
   };
 
@@ -1355,31 +1516,19 @@ const currentTime = `${hours}:${minutes}`
     setRequests(rQ);
   };
   const onMuteorStopStreaming = (audio: boolean, mute: boolean) => {
-    // alert("hmsafar: " + mute);
     setStreams((prevStreams) =>
       prevStreams.map((stream) => {
         if (stream.socketId === socketBio.id) {
           const updatedStream = { ...stream };
           audio
-            ? (updatedStream.mute = !mute)
-            : (updatedStream.webcam = !mute);
-            const myTracks = updatedStream.stream.getTracks();
-            const myAudio = myTracks.filter(track => track.kind === "audio")[0];
-            const myVideo = myTracks.filter(track => track.kind === "video")[0];
-            function toggleTrackMute(track: MediaStreamTrack) {
-              track.enabled = !track.enabled;
-              console.log(`${track.enabled ? 'unmuted' : 'muted'} track.kind`);
-            }
-            if(audio) {
-              toggleTrackMute(myAudio);
-              websocket.emit("set:my:track:option", {room, socketId: socketBio.id, video: false, block: myAudio.enabled ? false : true});
-            }else {
-              toggleTrackMute(myVideo);
-              websocket.emit("set:my:track:option", {room, socketId: socketBio.id, video: true, block: !myVideo.enabled});
-            }
-          // audio
-          //   ? updatedStream.stream.getAudioTracks()[0].enabled = !mute
-          //   : updatedStream.stream.getVideoTracks()[0].enabled = mute;
+            ? (updatedStream.mute = mute ? false : true)
+            : (updatedStream.webcam = mute ? false : true);
+          const audioTrackorvIDEOtrACK = audio
+            ? updatedStream.stream.getAudioTracks()[0]
+            : updatedStream.stream.getVideoTracks()[0];
+          if (audioTrackorvIDEOtrACK) {
+            audioTrackorvIDEOtrACK.enabled = mute;
+          }
           return updatedStream;
         }
         return stream;
@@ -1418,6 +1567,60 @@ const currentTime = `${hours}:${minutes}`
     return timeline;
   };
 
+  const onContinuesMicChecking = () => {
+    const recognition =
+      new webkitSpeechRecognition() || new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = function (event) {
+      if (websocket) {
+        websocket.emit("i:am:speaking", room);
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: true,
+              };
+            }
+            return strm;
+          })
+        );
+      }
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          console.log(event.results[i][0].transcript);
+        }
+      }
+    };
+
+    recognition.onend = function () {
+      recognition.start();
+    };
+    recognition.onspeechend = function () {
+      console.log("User stopped speaking.");
+      if (websocket) {
+        websocket.emit("i:am:stopped:speaking", room);
+        setSpeakers((prev) =>
+          prev.map((strm) => {
+            if (strm.socketId === socketBio.id) {
+              return {
+                ...strm,
+                speaking: false,
+              };
+            }
+            return strm;
+          })
+        );
+      }
+    };
+    recognition.onerror = function (event) {
+      console.error("Speech recognition error", event);
+    };
+
+    recognition.start();
+  };
   function formatTimeLeft(seconds: number): string {
   if (seconds < 60) {
     // If less than 60 seconds, show in seconds
@@ -1649,19 +1852,19 @@ const currentTime = `${hours}:${minutes}`
 
   useEffect(() => {
     function isMobileOrTablet() {
-      const userAgent = navigator.userAgent || navigator.vendor || !(window as any).opera;
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
       return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i.test(
-        userAgent as string
+        userAgent
       );
     }
 
     function checkFullScreen() {
       if (
-    !document.fullscreenElement &&
-    !(document as any).mozFullScreenElement &&
-    !(document as any).webkitFullscreenElement &&
-    !(document as any).msFullscreenElement
-  ) {
+        !document.fullscreenElement &&
+        !document.mozFullScreenElement &&
+        !document.webkitFullscreenElement &&
+        !document.msFullscreenElement
+      ) {
         // Show the prompt if not in full-screen mode and if the pop-up should be shown
         if (removePopUp) {
           setEnableFfModal(true);
@@ -1689,7 +1892,7 @@ const currentTime = `${hours}:${minutes}`
         startDuplexCommunication={setName$}
         dontconnectback={true}
       />
-      {roomUnlocked === 4 && ( 
+      {roomUnlocked === 4 && (
         <div>
           {" "}
           <div className="h-screen w-screen bg-gray-50 flex items-center">
@@ -1700,14 +1903,16 @@ const currentTime = `${hours}:${minutes}`
                   404
                 </div>
                 <p className="text-2xl md:text-3xl font-light leading-normal mb-8">
-                  Room Not Found! possibly deleted or something missing in the URL.
+                  We are working on some major improvements and errors and
+                  currently shutting down for maintenance, but don't worry—you
+                  will soon be able to use this service.
                 </p>
 
                 <a
                   href="https://google.com"
                   className="px-5 inline py-3 text-sm font-medium leading-5 shadow-2xl text-white transition-all duration-400 border border-transparent rounded-lg focus:outline-none bg-green-600 active:bg-red-600 hover:bg-red-700"
                 >
-                  try back soon.
+                  get back soon.
                 </a>
               </div>
               <div className="w-full lg:flex lg:justify-end lg:w-1/2 mx-5 my-12">
@@ -1722,19 +1927,12 @@ const currentTime = `${hours}:${minutes}`
         </div>
       )}
       {roomUnlocked === 1 && (
-        <>
-         {joining && <div className="demo-container">
-            <div className="progress-bar">
-              <div className="progress-bar-value"></div>
-            </div>
-          </div> }
         <section className="min-h-screen flex items-stretch text-white ">
-         
           <div
             className="lg:flex w-1/2 hidden bg-gray-500 bg-no-repeat bg-cover relative items-center"
             style={{
               backgroundImage:
-                "url(https://i.imgur.com/X3TOadT.png)",
+                "url(https://images.unsplash.com/photo-1577495508048-b635879837f1?ixid=MXwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHw%3D&ixlib=rb-1.2.1&auto=format&fit=crop&w=675&q=80)",
             }}
           >
             <div className="absolute bg-black opacity-60 inset-0 z-0"></div>
@@ -1790,7 +1988,7 @@ const currentTime = `${hours}:${minutes}`
               className="absolute lg:hidden z-10 inset-0 bg-gray-500 bg-no-repeat bg-cover items-center"
               style={{
                 backgroundImage:
-                  "url(https://i.imgur.com/X3TOadT.png)",
+                  "url(https://images.unsplash.com/photo-1577495508048-b635879837f1?ixid=MXwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHw%3D&ixlib=rb-1.2.1&auto=format&fit=crop&w=675&q=80)",
               }}
             >
               <div className="absolute bg-black opacity-60 inset-0 z-0"></div>
@@ -1798,16 +1996,16 @@ const currentTime = `${hours}:${minutes}`
             <div className="w-full py-6 z-20">
               <div className="py-6 space-x-2">
                 <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                  ⚔️
+                  f
                 </span>
                 <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                  ⚔️
+                  G+
                 </span>
                 <span className="w-10 h-10 items-center justify-center inline-flex rounded-full font-bold text-lg border-2 border-white">
-                  ⚔️
+                  in
                 </span>
               </div>
-              <p className="text-gray-100">Enter the passcode to continue.</p>
+              <p className="text-gray-100">or use email your account</p>
               <form action="" className="sm:w-2/3 w-full px-4 lg:px-0 mx-auto">
                 <div className="pb-2 pt-4">
                   <input
@@ -1827,9 +2025,8 @@ const currentTime = `${hours}:${minutes}`
                   <button
                     onClick={onEnter}
                     className="uppercase block w-full p-4 text-lg rounded-full bg-indigo-500 hover:bg-indigo-600 focus:outline-none"
-                    disabled={joining}
                   >
-                    {!joining ? "Join Room!" : "Requesting..." }
+                    Join Room!
                   </button>
                 </div>
 
@@ -1872,7 +2069,6 @@ const currentTime = `${hours}:${minutes}`
             </div>
           </div>
         </section>
-        </>
         // <div className="join-room">
         //   <div>Hey, join this room by enterning the passcode</div>
         //   <label htmlFor="your-passcode">your passcode</label>
@@ -2407,7 +2603,7 @@ const currentTime = `${hours}:${minutes}`
             </h3>
             <a
               href="#"
-              onClick={() => onLeave()}
+              onClick={onLeave}
               className="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-base inline-flex items-center px-3 py-2.5 text-center mr-2"
             >
               Yes, I'm sure

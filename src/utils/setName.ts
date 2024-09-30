@@ -8,7 +8,7 @@ const startDuplexCommunication = () => {
   const setName$ = async (
     yourName: string,
     socketiD: string,
-    room: string
+    room?: string
   ): Promise<
     | {
         data: any;

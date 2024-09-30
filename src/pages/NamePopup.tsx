@@ -4,7 +4,7 @@ import io from "socket.io-client";
 import { useParams } from "react-router-dom";
 const process = {
   env: {
-    SERVER_PORT: "https://s5ljfdrz-8080.inc1.devtunnels.ms",
+    SERVER_PORT: "http://localhost:8000",
   },
 };
 interface NamePopUpProps {

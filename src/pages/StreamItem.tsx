@@ -14,7 +14,7 @@ const StreamItem = memo(
       //     {webrtc.webcam ? "WEBCAM BAND KARDIYA" : "CHALU HAI ABHI"}
       //   </button>
       // </div>
-      <div className="frames relative" key={webrtc.socketId}>
+      <div className="frames relative" key={webrtc.socketId} style={{border: webrtc.speaking && webrtc.webcam ? "3px solid blue" : ""}}>
         {admin && (
           <BsThreeDotsVertical
             style={{ cursor: "pointer", zIndex: 3 }}
@@ -60,7 +60,7 @@ const StreamItem = memo(
           </div>
         )}
         {/* Toggle between webcam feed and camera off logo based on isVisible */}
-        {webrtc.webcam ? (
+        {!webrtc.webcam ? (
           <video
             ref={webrtc.ref}
             autoPlay
@@ -78,7 +78,9 @@ const StreamItem = memo(
                 "url(https://img.freepik.com/free-photo/photorealistic-view-tree-nature-with-branches-trunk_23-2151478039.jpg)",
             }}
             id="cameraOffLogo"
-          ></div>
+          >
+            <audio ref={webrtc.ref}  muted={webrtc.socketId === socketBio.id ? true : false}/>
+          </div>
         )}
         <p id="userName">{webrtc.name}</p>
       </div>
