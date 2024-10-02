@@ -244,6 +244,7 @@ const Room = () => {
   });
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const negotiationCounter = useRef<number>(1);
   const blob = useRef<Blob | null>(null);
   const streamRefs = useRef<Stream[]>([]);
   const createStream = async (socketId: string) => {
@@ -617,6 +618,13 @@ const currentTime = `${hours}:${minutes}`
 
 const makePeerConnections = async  (ids: Array<IP>) => {
   nextPersonSenderId.current = "";
+  negotiationCounter.current = 1; 
+  if(!ids[idx.current]) return;
+
+  if(ids[idx.current].socketId === socketBio.id) {
+    idx.current++;
+    return makePeerConnections(ids); 
+  }
    Pcs.current.push({id: ids[idx.current].socketId, pc: new Peer()});
   nextPersonId.current = ids[idx.current].socketId;
     await createLocalOffer(ids[idx.current].socketId);
@@ -741,9 +749,9 @@ const createLocalOffer = async (id: string) => {
               },
             ]);
      websocket.on("get:specific:user:track", (trace) => {
-        console.log("checking: ", heap, trace);
+        console.log("checking: ", heap, trace, streamRefs.current);
         setStreams((prev) => prev.map((strm) => {
-          if(strm.socketId === heap) {
+          if(strm.socketId === trace.socketId) {
             return {
               ...strm,
              webcam: !trace.mute,
@@ -1072,21 +1080,30 @@ const currentTime = `${hours}:${minutes}`
       setTracks();
         }
       );
-       websocket.on("send-track", (socketId: string) => {
-      console.log("I may need to send tracks??🙄: ", socketId);
-      nextPersonSenderId.current = socketId;
-      console.log("socketidddddddd: ", socketBio.id);
-      setTracks();
-      if (idx.current + 1 !== idsRef.current.length && connecting.current) {
-        console.log("FINALLY ERRORRRRROROROROROROROR S0LVED::::!!!!")
-        idx.current++;
-        if(idsRef.current[idx.current].socketId === socketBio.id) return connecting.current = false;
-        console.log("i got you bro: ", idsRef.current[idx.current], socketBio.id);
-        makePeerConnections(idsRef.current); 
-      }else {
-        connecting.current = false;
+      websocket.on("send-track", (socketId: string) => {
+        let isAdmin = false;
+    for(let i = 0; i < idsRef.current.length; i++) {
+      if(idsRef.current[i].socketId === socketId && idsRef.current[i].isOc) {
+        isAdmin = true;
       }
-    })
+    }
+    console.log("I may need to send tracks??🙄: ", socketId);
+    nextPersonSenderId.current = socketId;
+    console.log("socketidddddddd: ", socketBio.id);
+    setTracks();
+    if (idx.current + 1 !== idsRef.current.length || connecting.current) {
+      if(isAdmin && negotiationCounter.current === 1) { 
+        return negotiationCounter.current++;
+      }
+      console.log("FINALLY ERRORRRRROROROROROROROR S0LVED::::!!!!")
+      idx.current++;
+      if(idsRef.current[idx.current].socketId === socketBio.id) idx.current++;
+      console.log("i got you bro: ", idsRef.current[idx.current], socketBio.id);
+      makePeerConnections(idsRef.current); 
+    }else {
+      connecting.current = false;
+    }
+  })
 
       websocket.on(
         "send:request",
@@ -1127,7 +1144,7 @@ const currentTime = `${hours}:${minutes}`
                 " requesting to get the file and btw the blob is: ",
               blob.current
             );
-            Pcs.current[Pcs.current.length - 1].pc.createDataChannel();
+             Pcs.current[Pcs.current.length - 1].pc.createDataChannel();
             Pcs.current[Pcs.current.length - 1].pc.transferFile(
               blob.current
             );
