@@ -27,7 +27,7 @@ interface CustomHeaders {
 interface Stream {
   socketId: string;
   stream: MediaStream;
-  ref: React.LegacyRef<HTMLVideoElement> | null;
+  ref: string;
   threedOT: boolean;
   mute: boolean;
   webcam: boolean;
@@ -60,7 +60,7 @@ const Room = () => {
   const [isVisible, setIsVisible] = useState(false); // Single state for visibility
   const [isChatOpen, setIsChatOpen] = useState(false);
   const idsRef = useRef<any>();
-  const [showOptions, setShowOptions] = useState(true);
+  const showOptions = true;
   const mainStream = useRef<any>(); // Ref to store the media stream
   const canvasRef = useRef(null);
   const pushToEnd  = useRef<HTMLDivElement | null>(null);
@@ -193,14 +193,13 @@ const Room = () => {
     apneChatsRef.current = chats;
   }, [chats] )
   const [message, setMessage] = useState<string>("");
-  const currentPeeringSocket = useRef<string>("");
   const admiRef = useRef(admin);
   useEffect(() => {
     admiRef.current = admin;
   }, [admin]);
   const [roomUnlocked, setRoomUnlocked] = useState<number>(2);
-  const [notificationEnabled, setNotificationEnabled] =
-    useState<boolean>(false);
+  // const [notificationEnabled, setNotificationEnabled] =
+  //   useState<boolean>(false);
   const [requests, setRequests] = useState<
     Array<
       | {
@@ -213,6 +212,10 @@ const Room = () => {
 
   const { id } = useParams();
   const [afterFileSelected, setFileSelected] = useState<boolean>(false);
+
+  useEffect(() => {
+    console.log("nothing");
+  }, [afterFileSelected])
   let [media, setMedia] = useState<string>("");
   const room = id;
   const [token, setToken] = useState<string>("");
@@ -230,6 +233,10 @@ const Room = () => {
   let blockViceVersa = useRef<boolean>(true);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [speakers, setSpeakers] = useState<Speaking[]>([]);
+
+  useEffect(() => {
+    
+  }, [speakers])
   const [totalFileSize, setTotalSize] = useState({
     sizeUnit: "",
     size: 0
@@ -243,7 +250,7 @@ const Room = () => {
     timeLeft: ""
   });
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // const videoRef = useRef<HTMLVideoElement>(null);
   const negotiationCounter = useRef<number>(1);
   const blob = useRef<Blob | null>(null);
   const streamRefs = useRef<Stream[]>([]);
@@ -262,10 +269,7 @@ const Room = () => {
     const micSource = audioCtx.createMediaStreamSource(stream);
     const scriptNode = audioCtx.createScriptProcessor(2048, 1, 1); // adjust bufferSize and channel count as needed
 
-    scriptNode.onaudioprocess = (event) => {
-      const inputBuffer = event.inputBuffer;
-      // Analyze audio data here (e.g., calculate root mean square - RMS)
-    };
+    
 
     micSource.connect(scriptNode);
     scriptNode.connect(audioCtx.destination);
@@ -327,7 +331,7 @@ const Room = () => {
         // Fire your "speech stopped" event here
       }
     };
-    const shallowRefference = { ...videoRef };
+ 
 
     setVideoMute(true);
      const myTracks = stream.getTracks();
@@ -339,7 +343,7 @@ const Room = () => {
       {
         socketId,
         stream,
-        ref: shallowRefference,
+        ref: socketBio.id,
         mute: false,
         webcam: true,
         name: yourName,
@@ -359,15 +363,24 @@ const Room = () => {
 
   useEffect(() => {
     if (streams.length > 0) {
-      const lastStream: any = streams[streams.length - 1];
-      if (lastStream.ref && lastStream.ref.current) {
-        lastStream.ref.current.srcObject = lastStream.stream;
-        lastStream.ref.current.play();
-      }
+      streams.forEach((stream) => {
+        let videoElement: HTMLVideoElement = document.getElementById(stream.ref as string) as HTMLVideoElement;
+        
+        if (videoElement && videoElement.srcObject !== stream.stream) {
+          videoElement.srcObject = stream.stream;
+        }
+        
+        // Check if the video is paused and play if not already playing
+        if (videoElement && videoElement.paused) {
+          videoElement.play();
+        }
+      });
+  
+      // Save current stream references
       streamRefs.current = streams;
     }
-    
   }, [streams]);
+  
 
   useEffect(() => {
     if (socketState.socket) {
@@ -635,7 +648,7 @@ const createLocalOffer = async (id: string) => {
     offer, socketId: id, mySocketId: socketBio.id
   });
 };
-  const [hasFile, setHasFile] = useState<boolean>(localStorage.getItem("has-file") === "$" ? true : false);
+const hasFile = localStorage.getItem("has-file") === "$" ? true : false;
   const [needAFile, setNeedAFile] = useState<boolean>(hasFile);
   const getRemoteTracks = async (event: any) => {
     const nextUserStreamReference = event.streams[0];
@@ -733,14 +746,14 @@ const createLocalOffer = async (id: string) => {
         prev.filter((stream) => stream.stream.id !== nextUserStreamReference.id)
       );
     });
-    const shallowReference = { ...videoRef };
+  
     websocket.emit("get:remotes:track:options", {room, socketId: heap});
       setStreams((prev) => [
               ...prev,
               {
                 socketId: heap,
                 stream: nextUserStreamReference,
-                ref: shallowReference,
+                ref: heap,
                 webcam: true,
                 mute: false,
                 name: "loading...",
@@ -754,8 +767,8 @@ const createLocalOffer = async (id: string) => {
           if(strm.socketId === trace.socketId) {
             return {
               ...strm,
-             webcam: !trace.mute,
-                mute: trace.webcam,
+             webcam: trace.webcam,
+                mute: trace.mute,
                 name: trace.name,
             }
           }
@@ -1062,7 +1075,7 @@ const currentTime = `${hours}:${minutes}`
             if (stream.socketId === socketId) {
               return {
                 ...stream,
-                webcam: false,
+                webcam: false
               };
             }
             return stream;
@@ -1392,6 +1405,7 @@ const currentTime = `${hours}:${minutes}`
               websocket.emit("set:my:track:option", {room, socketId: socketBio.id, video: false, block: myAudio.enabled ? false : true});
             }else {
               toggleTrackMute(myVideo);
+
               websocket.emit("set:my:track:option", {room, socketId: socketBio.id, video: true, block: !myVideo.enabled});
             }
           // audio
@@ -1651,18 +1665,18 @@ const currentTime = `${hours}:${minutes}`
       : null;
   }
 
-  useEffect(() => {
-    if (!("Notification" in window)) {
-      console.log("This browser does not support notifications.");
-      return;
-    }
-    Notification.requestPermission().then((permission) => {
-      const outcome: string = permission === "granted" ? "none" : "block";
-      if (outcome == "granted") {
-        setNotificationEnabled(true);
-      }
-    });
-  }, []);
+  // useEffect(() => {
+  //   if (!("Notification" in window)) {
+  //     console.log("This browser does not support notifications.");
+  //     return;
+  //   }
+  //   Notification.requestPermission().then((permission) => {
+  //     const outcome: string = permission === "granted" ? "none" : "block";
+  //     if (outcome == "granted") {
+  //       setNotificationEnabled(true);
+  //     }
+  //   });
+  // }, []);
 
   useEffect(() => {
     function isMobileOrTablet() {
@@ -2295,10 +2309,37 @@ const currentTime = `${hours}:${minutes}`
                   Or share this room link with others you want in the room
                 </p>
                 <div className="bg-gray-800 p-2 rounded-lg flex items-center justify-between mb-4">
-                  <span className="text-gray-300 text-sm" style={{ width: "70%" }}>
+                  <span className="text-gray-300 text-sm" style={{ width: "90%" }} id="clip-board"> 
                     http://localhost:5317/{room}
                   </span>
-                  <button className="text-blue-400 hover:text-blue-500">
+                                    <button className="text-blue-400 hover:text-blue-500"   onClick={() => {
+                                    let copyText: HTMLSpanElement = document.getElementById("clip-board")!;
+                                    
+                                    // Create a range and select the text
+                                    let range = document.createRange();
+                                    range.selectNode(copyText);
+                                    let selection = window.getSelection();
+                                    
+                                    // Clear any existing selection and add the new range
+                                    selection?.removeAllRanges();
+                                    selection?.addRange(range);
+
+                                    // Copy the selected text to the clipboard
+                                    navigator.clipboard.writeText(copyText.textContent || '');
+
+                                    // Apply a temporary highlight effect to indicate the text was copied
+                                    copyText.style.backgroundColor = 'yellow'; // Highlight the text
+                                    copyText.style.color = 'black'; // Change text color for visibility
+
+                                    // Set a timeout to remove the highlight after a short delay
+                                    setTimeout(() => {
+                                      copyText.style.backgroundColor = ''; // Reset the background color
+                                      copyText.style.color = ''; // Reset the text color
+                                    }, 1000); // 1-second delay
+
+                                    // Clear the selection after copying
+                                    selection?.removeAllRanges();
+                                  }}>
                     &#128203;
                   </button>
                 </div>
@@ -2306,14 +2347,30 @@ const currentTime = `${hours}:${minutes}`
                   <span className="inline-block align-middle mr-1">
                     &#9432;
                   </span>{" "}
-                  People who use this meeting link must get your permission
+                  People who use this room link must get your permission
                   before they can join.
                 </p>
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md mb-4">
+                <button onClick={async () => {
+                    if (navigator.share) {
+                      try {
+                          await navigator.share({
+                              title: 'WachWithMe',
+                              text: localStorage.getItem("your-name") 
+                              + "'s Room",
+                              url: `http://localhost:5317/${room}` ,
+                          });
+                          console.log('Content shared successfully');
+                      } catch (error) {
+                          console.error('Error sharing:', error);
+                      }
+                  } else {
+                      console.log('Web Share API is not supported in this browser.');
+                  }                  
+                }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-md mb-4">
                   Share
                 </button>
                 <p className="text-gray-400 text-sm">
-                  Joined as student.arbind@gmail.com
+                  Joined as {localStorage.getItem("your-name")}
                 </p>
               </div>
             </div>

@@ -62,8 +62,8 @@ const StreamItem = memo(
         {/* Toggle between webcam feed and camera off logo based on isVisible */}
         {!webrtc.webcam ? (
           <video
-            ref={webrtc.ref}
             autoPlay
+            id={webrtc.ref}
             muted={webrtc.socketId === socketBio.id ? true : false}
             style={{
               width: "100%",
@@ -79,7 +79,7 @@ const StreamItem = memo(
             }}
             id="cameraOffLogo"
           >
-            <audio ref={webrtc.ref}  muted={webrtc.socketId === socketBio.id ? true : false}/>
+            <audio id={webrtc.ref}  muted={webrtc.socketId === socketBio.id ? true : false}/>
           </div>
         )}
         <p id="userName">{webrtc.name}</p>
