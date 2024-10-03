@@ -49,6 +49,10 @@ const CreateRoom = () => {
   );
   const [setted, setSetted] = useState<boolean>(false);
   const [socket, setSocket] = useState<Socket | null>(null);
+
+  useEffect(()  => {
+    
+  }, [socket])
   const { setName$ } = startDuplexCommunication();
   const socketBio = useContext(SocketContextId);
   const [blocked, setBlocked] = useState<boolean>(false);

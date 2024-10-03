@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-import { useNavigate } from "react-router-dom";
 const App = () => {
   useEffect(() => {
     function deleteCookie(name: string) {
@@ -10,7 +9,6 @@ const App = () => {
   cookies.forEach((c) => deleteCookie(c));
   document.cookie = "custom-ip="+Math.floor(Math.random()*10000);
   })
-  const history = useNavigate();
   return <div className=""></div>;
 };
 
