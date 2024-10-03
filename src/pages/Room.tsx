@@ -2310,7 +2310,7 @@ const currentTime = `${hours}:${minutes}`
                 </p>
                 <div className="bg-gray-800 p-2 rounded-lg flex items-center justify-between mb-4">
                   <span className="text-gray-300 text-sm" style={{ width: "90%" }} id="clip-board"> 
-                    http://localhost:5317/{room}
+                    https://www.wachwith.me/{room}
                   </span>
                                     <button className="text-blue-400 hover:text-blue-500"   onClick={() => {
                                     let copyText: HTMLSpanElement = document.getElementById("clip-board")!;
@@ -2357,7 +2357,7 @@ const currentTime = `${hours}:${minutes}`
                               title: 'WachWithMe',
                               text: localStorage.getItem("your-name") 
                               + "'s Room",
-                              url: `http://localhost:5317/${room}` ,
+                              url: `https://www.wachwith.me/${room}` ,
                           });
                           console.log('Content shared successfully');
                       } catch (error) {
