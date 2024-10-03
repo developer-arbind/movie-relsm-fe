@@ -629,7 +629,7 @@ const currentTime = `${hours}:${minutes}`
   }
 }, []);
 
-const makePeerConnections = async  (ids: Array<IP>): any => {
+const makePeerConnections = async  (ids: Array<IP>): Promise<any> => {
   nextPersonSenderId.current = "";
   negotiationCounter.current = 1; 
   if(!ids[idx.current]) return;
