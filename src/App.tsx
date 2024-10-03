@@ -9,7 +9,7 @@ const App = () => {
   cookies.forEach((c) => deleteCookie(c));
   document.cookie = "custom-ip="+Math.floor(Math.random()*10000);
   })
-  return <div className=""></div>;
+  return <div className="">Hello there</div>;
 };
 
 export default App;
