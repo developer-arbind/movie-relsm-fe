@@ -5,7 +5,7 @@ const connectSocket = () => {
   const context = useContext(SocketContextId);
   const socketTCP = (): Socket => {
     console.log("is working here too");
-    const socketInstance = io("https://s5ljfdrz-8080.inc1.devtunnels.ms", {
+    const socketInstance = io("https://wachwithme-bfdpczhhb8cjehhb.eastus-01.azurewebsites.net", {
       withCredentials: true
     });
     https: socketInstance.connect();

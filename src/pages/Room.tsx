@@ -51,7 +51,7 @@ interface IP {
 }
 const process = {
   env: {
-    SERVER_PORT: "http://localhost:8080",
+    SERVER_PORT: "https://wachwithme-bfdpczhhb8cjehhb.eastus-01.azurewebsites.net",
   },
 };
 const LAST_DATA_OF_FILE = "LDOF7";
